@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Auction Staff</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0b1020; --bg-2:#111831; --card:#161e3c; --line:rgba(255,255,255,.1); --text:#f4f1ea; --muted:#9aa3c0; --dim:#6d7699; --gold:#f2c14e; --green:#39d98a; --red:#ff5a6a; --r:12px; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    a { color: var(--gold); }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    header.bar { position: sticky; top: 0; z-index: 5; background: rgba(11,16,32,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+    header.bar .wrap { display:flex; align-items:center; gap:12px; padding-top:10px; padding-bottom:10px; flex-wrap: wrap; }
+    header.bar h1 { font-size: 17px; margin:0; flex:1; white-space:nowrap; }
+    .tabs { display:flex; gap:4px; background: var(--bg-2); padding:4px; border-radius: 10px; }
+    .tabs button { background:none; border:0; color:var(--muted); font:inherit; font-weight:600; padding:8px 14px; border-radius:8px; cursor:pointer; }
+    .tabs button.on { background: var(--card); color: var(--text); }
+    .card { background: var(--bg-2); border:1px solid var(--line); border-radius: var(--r); padding: 16px; margin-bottom: 14px; }
+    h2 { font-size: 18px; margin: 4px 0 12px; }
+    h3 { font-size: 15px; margin: 0 0 10px; color: var(--muted); }
+    label { display:block; font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+    input, select, textarea { width:100%; background: var(--bg); color: var(--text); border:1px solid var(--line); border-radius: 8px; padding: 10px 12px; font: inherit; }
+    input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outline-offset: -1px; }
+    input[type=checkbox] { width:auto; }
+    .grid { display:grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .span2 { grid-column: span 2; }
+    @media (max-width: 520px) { .span2 { grid-column: auto; } }
+    .btn { background: var(--gold); color:#1a1406; border:0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .btn.ghost { background: transparent; color: var(--text); border:1px solid var(--line); }
+    .btn.danger { background: transparent; color: var(--red); border:1px solid rgba(255,90,106,.4); }
+    .btn.sm { padding: 6px 10px; font-size: 13px; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .muted { color: var(--muted); }
+    .dim { color: var(--dim); font-size: 13px; }
+    .msg { padding: 10px 12px; border-radius: 8px; margin: 10px 0 0; font-weight: 600; }
+    .msg.ok { background: rgba(57,217,138,.12); color: var(--green); }
+    .msg.err { background: rgba(255,90,106,.12); color: var(--red); }
+    .login { max-width: 380px; margin: 12vh auto; }
+    .items { display: grid; gap: 10px; }
+    .it { background: var(--card); border:1px solid var(--line); border-radius: var(--r); }
+    .it-head { display:grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items:center; padding: 12px 14px; cursor: pointer; }
+    .it-num { font-weight: 800; color: var(--muted); }
+    .it-name { font-weight: 700; }
+    .it-sub { font-size: 13px; color: var(--dim); }
+    .it-amt { text-align: right; font-weight: 800; color: var(--gold); font-size: 18px; }
+    .it-amt small { display:block; font-size: 12px; color: var(--muted); font-weight: 600; }
+    .it-body { border-top: 1px solid var(--line); padding: 14px; display: none; }
+    .it.open .it-body { display: block; }
+    .bidform { display:grid; grid-template-columns: 1fr 1.4fr 0.8fr auto; gap: 10px; align-items: end; }
+    @media (max-width: 640px) { .bidform { grid-template-columns: 1fr 1fr; } .bidform .btn { grid-column: span 2; } }
+    .hist { list-style: none; margin: 12px 0 0; padding: 0; font-size: 14px; }
+    .hist li { display:flex; gap: 10px; align-items:center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .hist li span:first-child { font-weight: 700; width: 90px; }
+    .hist li span.grow { flex: 1; }
+    .pill { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 20px; background: rgba(255,255,255,.08); color: var(--muted); }
+    .pill.won, .pill.sold { color: var(--green); background: rgba(57,217,138,.12); }
+    .pill.hot { color: #ff8a3d; background: rgba(255,138,61,.14); }
+    .pill.recorded, .pill.updated, .pill.paid, .pill.removed, .pill.closed { color: var(--green); background: rgba(57,217,138,.12); }
+    .pill.error, .pill.rejected, .pill.unmatched { color: var(--red); background: rgba(255,90,106,.12); }
+    .pill.src { color: var(--gold); background: rgba(242,193,78,.12); }
+    details pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; color: var(--muted); background: var(--bg); padding: 8px; border-radius: 6px; max-height: 260px; overflow: auto; }
+    code { background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    td.r, th.r { text-align: right; }
+    .tablewrap { overflow-x: auto; }
+    .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 10px; margin-bottom: 14px; }
+    .stat { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; }
+    .stat b { display:block; font-size: 22px; }
+    .stat span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <!-- Login -->
+  <section id="loginView" class="wrap" hidden>
+    <div class="card login">
+      <h2>Auction staff sign in</h2>
+      <form id="loginForm">
+        <label for="pw">Staff password</label>
+        <input id="pw" type="password" autocomplete="current-password" required>
+        <div style="margin-top:12px"><button class="btn" style="width:100%">Sign in</button></div>
+        <div id="loginMsg"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- App -->
+  <div id="appView" hidden>
+    <header class="bar"><div class="wrap">
+      <h1 id="hdrTitle">Auction staff</h1>
+      <nav class="tabs" id="tabs">
+        <button data-tab="bids" class="on">Record bids</button>
+        <button data-tab="items">Items</button>
+        <button data-tab="settings">Settings</button>
+      </nav>
+      <a class="btn ghost sm" href="/" target="_blank" rel="noopener">Open display ↗</a>
+      <button class="btn ghost sm" id="logout">Sign out</button>
+    </div></header>
+
+    <main class="wrap">
+      <div class="stats" id="stats"></div>
+
+      <!-- Bids -->
+      <section id="tab-bids">
+        <div class="row" style="margin-bottom:12px">
+          <input id="search" placeholder="Find an item by number or name…" style="flex:1;min-width:200px">
+          <button class="btn ghost" id="refresh">Refresh</button>
+        </div>
+        <div class="items" id="bidItems"></div>
+      </section>
+
+      <!-- Items -->
+      <section id="tab-items" hidden>
+        <div class="card">
+          <h2 id="itemFormTitle">Add an item</h2>
+          <form id="itemForm">
+            <input type="hidden" name="id">
+            <div class="grid">
+              <div><label>Item #</label><input name="number" placeholder="12"></div>
+              <div><label>Webhook / Givebutter item ID</label><input name="externalId" placeholder="optional"></div>
+              <div class="span2"><label>Name *</label><input name="name" required placeholder="Weekend at the Lake House"></div>
+              <div><label>Category</label><input name="category" placeholder="Experiences"></div>
+              <div><label>Retail value ($)</label><input name="value" inputmode="decimal"></div>
+              <div><label>Starting bid ($)</label><input name="startingBid" inputmode="decimal"></div>
+              <div><label>Min. increment ($)</label><input name="minIncrement" inputmode="decimal" placeholder="e.g. 25"></div>
+              <div><label>Buy now price ($)</label><input name="buyNow" inputmode="decimal"></div>
+              <div class="span2"><label>Image URL</label><input name="image" placeholder="https://…"></div>
+              <div><label>Closes early at (optional)</label><input name="closesAt" type="datetime-local"></div>
+              <div><label>Status</label><select name="status"><option value="open">Open</option><option value="closed">Closed</option><option value="sold">Sold (Buy now)</option></select></div>
+              <div style="grid-column:1/-1"><label>Description</label><textarea name="description" rows="2"></textarea></div>
+            </div>
+            <div class="row" style="margin-top:12px">
+              <button class="btn" id="itemSave">Add item</button>
+              <button class="btn ghost" type="button" id="itemCancel" hidden>Cancel edit</button>
+            </div>
+            <div id="itemMsg"></div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Import items from CSV</h2>
+          <p class="muted" style="margin-top:0">Export your items from Givebutter (Auction › Items › Export) or any spreadsheet saved as CSV. Recognized columns: Item #, Name, Category, Description, Value, Starting bid, Increment, Buy now, Image URL.</p>
+          <div class="row">
+            <input type="file" id="csvFile" accept=".csv,text/csv" style="flex:1;min-width:200px">
+            <select id="csvMode" style="width:auto"><option value="append">Add to existing items</option><option value="replace">Replace all items</option></select>
+            <button class="btn" id="csvImport" disabled>Import</button>
+          </div>
+          <div id="csvPreview" class="dim" style="margin-top:8px"></div>
+          <div id="csvMsg"></div>
+        </div>
+
+        <div class="card">
+          <h2>All items</h2>
+          <div class="tablewrap"><table id="itemTable"></table></div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section id="tab-settings" hidden>
+        <form id="settingsForm">
+          <div class="card">
+            <h2>Live bids from Givebutter</h2>
+            <p class="muted" style="margin-top:0">Every item, current high bid, bidder and bid count are pulled from your Givebutter auction automatically. Find the auction ID by opening your auction page; for the Sarah Ramsey Strong 5K it is <b>61023</b>.</p>
+            <div class="grid">
+              <div><label>Givebutter auction ID</label><input name="gbAuctionId" placeholder="61023" inputmode="numeric"></div>
+              <div><label>Refresh every (seconds)</label><input name="syncSeconds" type="number" min="5" max="120"></div>
+              <div><label>&nbsp;</label><button class="btn ghost" type="button" id="syncNow" style="width:100%">Save &amp; sync now</button></div>
+            </div>
+            <div id="syncStatus" class="dim" style="margin-top:10px"></div>
+            <div id="syncMsg"></div>
+          </div>
+          <div class="card">
+            <h2>Event</h2>
+            <div class="grid">
+              <div class="span2"><label>Event title</label><input name="title"></div>
+              <div class="span2"><label>Subtitle</label><input name="subtitle" placeholder="Benefiting …"></div>
+              <div><label>Bidding closes at <span class="dim">(blank = use Givebutter's)</span></label><input name="endsAt" type="datetime-local"></div>
+              <div class="span2"><label>“Bid at” link shown on screen</label><input name="bidUrl" placeholder="givebutter.com/your-auction"></div>
+              <div class="span2"><label>Message when bidding closes</label><input name="closedMessage"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Display</h2>
+            <div class="grid">
+              <div><label>Seconds per page</label><input name="rotateSeconds" type="number" min="5" max="120"></div>
+              <div><label>“Hot” if bid within (min)</label><input name="hotMinutes" type="number" min="1" max="120"></div>
+              <div><label>“Closing soon” warning (min)</label><input name="closingSoonMinutes" type="number" min="1" max="240"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Givebutter</h2>
+            <p class="muted" style="margin-top:0">Shows your campaign's total raised, goal, and supporter count on the display. (Givebutter's API doesn't share live bids, so bids are entered on the Record bids tab.)</p>
+            <div id="gbKeyWarn" class="msg err" hidden>GIVEBUTTER_API_KEY isn't set in Netlify yet.</div>
+            <div class="grid">
+              <div class="span2"><label>Campaign</label>
+                <div class="row"><select name="campaignId" id="campaignSel" style="flex:1"><option value="">— none —</option></select><button class="btn ghost" type="button" id="loadCampaigns">Load campaigns</button></div>
+              </div>
+              <div><label>Or enter campaign ID</label><input id="campaignManual" placeholder="123456"></div>
+              <div><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" name="showGivebutter"> Show on display</label></div>
+            </div>
+            <div class="row" style="margin-top:12px"><button class="btn ghost" type="button" id="testGb">Test connection</button></div>
+            <div id="gbMsg"></div>
+          </div>
+          <div class="row"><button class="btn">Save settings</button></div>
+          <div id="settingsMsg"></div>
+        </form>
+
+        <div class="card" style="margin-top:24px">
+          <h2>Bid webhooks</h2>
+          <p class="muted" style="margin-top:0">Point your bid webhook at this URL. Every delivery is listed below with the raw payload, so you can confirm the item and bidder fields are being picked up.</p>
+          <div id="whSecretWarn" class="msg err" hidden>WEBHOOK_SECRET isn't set in Netlify yet — webhooks will be rejected.</div>
+          <label>Endpoint URL</label>
+          <div class="row"><input id="whUrl" readonly style="flex:1;min-width:240px"><button class="btn ghost" type="button" id="whCopy">Copy</button></div>
+          <p class="dim">Send the secret in a <code>Signature</code> header (Givebutter does this automatically), or append <code>?secret=…</code> for tools that can't set headers.</p>
+          <div class="row"><button class="btn ghost" type="button" id="whTest">Send test bid</button><button class="btn ghost" type="button" id="whRefresh">Refresh log</button></div>
+          <div id="whMsg"></div>
+          <div class="tablewrap" style="margin-top:12px"><table id="whLog"></table></div>
+        </div>
+
+        <div class="card" style="margin-top:24px;border-color:rgba(255,90,106,.35)">
+          <h2 style="color:var(--red)">Danger zone</h2>
+          <p class="muted" style="margin-top:0">Remove every bid from every item (for clearing test data before the event). Type CLEAR to confirm.</p>
+          <div class="row"><input id="clearConfirm" placeholder="CLEAR" style="max-width:160px"><button class="btn danger" id="clearBids">Clear all bids</button></div>
+          <div id="clearMsg"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>
