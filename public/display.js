@@ -10,6 +10,8 @@
   let prevCounts = null; // itemId -> bidCount from last poll
   const flashUntil = new Map(); // itemId -> timestamp
   let screenIndex = 0;
+  let spotlightIndex = 0; // which item the spotlight shows; advances once per full cycle
+  let currentType = null;
   let screenTimer = null;
   let lastOk = 0;
   let wasClosed = null;
@@ -162,6 +164,7 @@
   function buildScreens() {
     const items = data.items;
     if (isMobile()) return [{ type: MODE === "board" ? "board" : "grid", items, all: true }];
+    if (MODE === "spotlight") return [{ type: "spotlight" }];
     const L = layout();
     const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out.length ? out : [[]]; };
     const closed = auctionClosed();
@@ -174,6 +177,8 @@
         const cols = Math.min(L.boardCols, Math.ceil(p.length / L.rowsPerCol)) || 1;
         screens.push({ type: "board", items: p, L: { ...L, boardCols: cols } });
       });
+    // Between each full cycle: one item, large and easy to read.
+    if (MODE === "rotate" && items.length) screens.push({ type: "spotlight" });
     return screens;
   }
 
@@ -188,17 +193,19 @@
     // Pager
     $("pager").innerHTML = screens.length > 1 ? screens.map((_, i) => `<i class="${i === screenIndex ? "on" : ""}"></i>`).join("") : "";
     const gridPages = screens.filter((s) => s.type === "grid").length;
-    $("stageTitle").textContent =
+    currentType = sc.type;
+    const spot = data.items.length ? data.items[spotlightIndex % data.items.length] : null;
+    $("stageTitle").textContent = sc.type === "spotlight" ? `Item spotlight · ${(spotlightIndex % data.items.length) + 1} of ${data.items.length}` :
       sc.type === "board" ? (closed ? "Final results" : "All items — current standings") : gridPages > 1 ? `Auction items · page ${screenIndex + 1} of ${gridPages}` : "Auction items";
 
     if (!data.items.length) {
       view.innerHTML = `<div class="notice">No auction items yet.<br>Add them on the staff page at /admin.</div>`;
       return;
     }
-    const key = screenIndex + ":" + screens.length + ":" + sc.type;
+    const key = screenIndex + ":" + screens.length + ":" + sc.type + (sc.type === "spotlight" ? ":" + spot.id : "");
     const animate = view.dataset.key !== key;
     view.dataset.key = key;
-    view.innerHTML = sc.type === "grid" ? gridHTML(sc) : boardHTML(sc);
+    view.innerHTML = sc.type === "spotlight" ? spotlightHTML(spot) : sc.type === "grid" ? gridHTML(sc) : boardHTML(sc);
     if (!animate) view.firstElementChild.style.animation = "none";
   }
 
@@ -248,6 +255,44 @@
     </article>`;
   }
 
+  function spotlightHTML(it) {
+    const has = it.currentBid != null;
+    const won = it.status === "won" || it.status === "sold";
+    const done = won || it.status === "unsold";
+    let label, amount, who, whoLbl;
+    if (it.buyNowOnly && !has && it.status !== "sold") {
+      label = "Buy now price"; amount = fmt$(it.buyNow);
+      who = it.remaining != null ? `${it.remaining} available` : "Limited availability"; whoLbl = "Purchase online — no bidding";
+    } else if (has) {
+      label = won ? "Winning bid" : "Current high bid"; amount = fmt$(it.currentBid);
+      who = it.leader; whoLbl = won ? "Winner" : "Leading bidder";
+    } else if (it.status === "sold") {
+      label = "Sold for"; amount = fmt$(it.soldPrice ?? it.buyNow); who = it.soldTo || "Sold"; whoLbl = "Buyer";
+    } else {
+      label = done ? "Final" : "Opening bid"; amount = done ? "—" : fmt$(it.startingBid);
+      who = done ? "No bids" : "Be the first!"; whoLbl = done ? "" : "No bids yet";
+    }
+    const facts = [
+      it.value ? ["Retail value", fmt$(it.value)] : null,
+      !it.buyNowOnly ? ["Bids", String(it.bidCount)] : null,
+      !it.buyNowOnly && !done ? ["Next bid", fmt$(it.nextMinimum) + "+"] : null,
+      it.buyNow && !it.buyNowOnly ? ["Buy now", fmt$(it.buyNow)] : null,
+    ].filter(Boolean);
+    return `<article class="spot ${it.status}${it.image ? "" : " noimg"}${flashing(it.id) ? " flash" : ""}">
+      ${it.image ? `<div class="spot-img"><img src="${esc(it.image)}" alt="" onerror="this.closest('.spot').classList.add('noimg');this.parentNode.remove()"></div>` : ""}
+      <div class="spot-body">
+        <div class="spot-top">${it.number ? `<span class="num">#${esc(it.number)}</span>` : ""}<span class="cat">${esc(it.category)}</span><span class="chip ${it.buyNowOnly && !has ? "leading" : it.status}">${it.buyNowOnly && !has ? "Buy now" : STATUS[it.status]}</span></div>
+        <h2 class="spot-name">${esc(it.name)}</h2>
+        ${it.description ? `<p class="spot-desc">${esc(it.description)}</p>` : ""}
+        <div class="spot-bid">
+          <div><div class="bid-lbl">${label}</div><div class="spot-amt ${has || it.buyNowOnly || it.status === "sold" ? "" : "none"}">${amount}</div></div>
+          <div class="spot-who"><div class="bid-lbl">${whoLbl}</div><b>${esc(who)}</b></div>
+        </div>
+        ${facts.length ? `<div class="spot-facts">${facts.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("")}</div>` : ""}
+      </div>
+    </article>`;
+  }
+
   function boardHTML(sc) {
     const style = sc.all ? "" : `grid-template-columns:repeat(${sc.L.boardCols},minmax(0,1fr));grid-template-rows:repeat(${sc.L.rowsPerCol},${sc.L.rowH}px)`;
     return `<div class="board" style="${style}">${sc.items
@@ -259,11 +304,17 @@
       .join("")}</div>`;
   }
 
+  // Leaving the spotlight moves it on to the next item for the next cycle.
+  function advance(step) {
+    if (currentType === "spotlight" && (step > 0 || MODE === "spotlight")) spotlightIndex++;
+    screenIndex = Math.max(0, screenIndex + step);
+  }
+
   function startRotation() {
     clearTimeout(screenTimer);
     const secs = Math.max(5, (data && data.settings.rotateSeconds) || 15);
     screenTimer = setTimeout(() => {
-      screenIndex++;
+      advance(1);
       renderScreen();
       startRotation();
     }, secs * 1000);
@@ -319,8 +370,8 @@
   $("fsBtn").addEventListener("click", toggleFs);
   addEventListener("keydown", (e) => {
     if (e.key === "f" || e.key === "F") toggleFs();
-    if (e.key === "ArrowRight") { screenIndex++; renderScreen(); startRotation(); }
-    if (e.key === "ArrowLeft") { screenIndex = Math.max(0, screenIndex - 1); renderScreen(); startRotation(); }
+    if (e.key === "ArrowRight") { advance(1); renderScreen(); startRotation(); }
+    if (e.key === "ArrowLeft") { advance(-1); renderScreen(); startRotation(); }
   });
   let idleT;
   const wake = () => { document.body.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add("idle"), 3000); };
