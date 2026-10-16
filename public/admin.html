@@ -80,6 +80,9 @@
     .winner { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; margin-top: 14px; }
     .winner .wn { font-size: 26px; font-weight: 800; }
     .winner .wnum { color: var(--gold); font-weight: 800; }
+    .winner.choosing { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold) inset; }
+    .assign { display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+    .assign > div { flex:1; min-width:220px; }
     .switch { display:flex; gap:8px; align-items:center; font-weight:600; color: var(--text); font-size: 15px; }
     .prow { display:grid; grid-template-columns: 28px 1.3fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
     .prow .pn { color: var(--dim); font-weight: 700; text-align: center; }
@@ -187,8 +190,15 @@
             <a class="btn ghost sm" href="/raffle" target="_blank" rel="noopener">Open raffle screen ↗</a>
           </div>
           <p class="dim" style="margin:6px 0 12px">When this is on, every screen showing the auction switches to the raffle. Turn it off to go back to the auction.</p>
+          <div class="row" style="margin-bottom:12px">
+            <div style="flex:1;min-width:220px"><label>How prizes are given</label>
+              <select id="rMode">
+                <option value="prize">Draw for each prize, in order</option>
+                <option value="choice">Draw a ticket, and the winner picks from the remaining prizes</option>
+              </select></div>
+          </div>
           <div class="row">
-            <div style="flex:1;min-width:220px"><label>Prize to draw</label><select id="rPrizeSel"></select></div>
+            <div style="flex:1;min-width:220px"><label>What this draw is for</label><select id="rPrizeSel"></select></div>
             <div><label>&nbsp;</label><button class="btn bigbtn" id="rDraw">🎟 Draw winner</button></div>
           </div>
           <div id="rDrawMsg"></div>

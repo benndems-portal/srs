@@ -374,6 +374,7 @@
   /* ---------- Raffle ---------- */
   let raffle = null;
   let prizeDraft = null; // unsaved edits to the prize list
+  let assignPick = ""; // prize picked in the "Prize they chose" box, kept across refreshes
   const normH = (h) => h.toLowerCase().replace(/[^a-z0-9#]/g, "");
   const findCol = (hdr, names) => { const n = hdr.map(normH); for (const x of names) { const i = n.indexOf(x); if (i >= 0) return i; } return -1; };
   const when = (t) => (t ? new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "");
@@ -402,25 +403,39 @@
       (p.duplicateNumbers.length ? `<div class="msg err" style="grid-column:1/-1">Duplicate entry numbers: ${esc(p.duplicateNumbers.join(", "))}. Check the ticket import.</div>` : "");
 
     $("rLive").checked = r.live;
-    // Prize picker: next undrawn prize first.
-    const won = new Map(r.draws.filter((d) => d.status === "won").map((d) => [d.prizeId, d]));
+    $("rMode").value = r.awardMode;
+    // What to draw for: "winner chooses", or a specific prize (next undrawn prize first).
+    const won = new Map(r.draws.filter((d) => d.status === "won" && d.prizeId).map((d) => [d.prizeId, d]));
     const sel = $("rPrizeSel"), cur = sel.value;
+    const left = r.available.length;
     sel.innerHTML = r.prizes.length
-      ? r.prizes.map((pz, i) => `<option value="${pz.id}" ${won.has(pz.id) ? "disabled" : ""}>${i + 1}. ${esc(pz.name)}${won.has(pz.id) ? " — won by " + esc(won.get(pz.id).name) : ""}</option>`).join("")
+      ? `<option value="choice">🎁 Winner chooses from the remaining prizes (${left} left)</option><optgroup label="Or draw for a specific prize">` +
+        r.prizes.map((pz, i) => `<option value="${pz.id}" ${won.has(pz.id) ? "disabled" : ""}>${i + 1}. ${esc(pz.name)}${won.has(pz.id) ? " — " + esc(won.get(pz.id).name) : ""}</option>`).join("") + `</optgroup>`
       : `<option value="">Add prizes below first</option>`;
-    sel.value = cur && r.prizes.some((x) => x.id === cur && !won.has(x.id)) ? cur : r.next?.id || "";
-    $("rDraw").disabled = !r.next || !p.eligible;
+    const curOk = cur === "choice" ? left > 0 : r.prizes.some((x) => x.id === cur && !won.has(x.id));
+    if (curOk && sel.dataset.mode === r.awardMode) sel.value = cur;
+    else sel.value = r.awardMode === "choice" && left ? "choice" : r.next?.id || "";
+    sel.dataset.mode = r.awardMode;
+    $("rDraw").disabled = !r.next || !p.eligible || !!r.choosing;
+    $("rDraw").title = r.choosing ? "Assign the current winner's prize first" : "";
 
-    const last = r.draws.find((d) => d.id === r.current) || null;
-    $("rLast").innerHTML = last ? `<div class="winner">
-        <div class="dim">${esc(last.prizeName)} · drawn ${new Date(last.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })} from ${last.poolSize} entries</div>
+    const last = r.draws.find((d) => d.id === r.current) || r.choosing || null;
+    const choosing = last && last.status === "won" && last.choice && !last.prizeId;
+    const availOpts = (keep) => r.prizes.filter((pz) => r.available.includes(pz.id) || pz.id === keep).map((pz) => `<option value="${pz.id}" ${pz.id === keep ? "selected" : ""}>${esc(pz.name)}</option>`).join("");
+    const assignBox = last && last.status === "won" && last.choice
+      ? `<div class="assign"><div><label>${choosing ? "Prize they chose" : "Change their prize"}</label><select id="rAssignSel">${choosing ? `<option value="">Pick from ${left} remaining…</option>` : ""}${availOpts(last.prizeId)}</select></div>
+         <button class="btn ${choosing ? "" : "ghost"}" data-assign="${last.id}">${choosing ? "Assign prize" : "Change prize"}</button></div>`
+      : "";
+    $("rLast").innerHTML = last ? `<div class="winner${choosing ? " choosing" : ""}">
+        <div class="dim">${choosing ? "<b style=\"color:var(--gold)\">Winner is choosing a prize</b>" : esc(last.prizeName) + (last.choice ? " (their choice)" : "")} · drawn ${new Date(last.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })} from ${last.poolSize} entries</div>
         <div class="wn">${esc(last.name)} <span class="wnum">${esc(last.number)}</span></div>
         <div class="dim">${esc(last.type || "")}${last.email ? " · " + esc(last.email) : ""}</div>
         <div class="row" style="margin-top:10px">
-          ${last.status === "won" ? `<button class="btn ghost sm" data-redraw="${last.id}">Winner not here: redraw this prize</button>` : `<span class="pill error">forfeited</span>`}
+          ${last.status === "won" ? `<button class="btn ghost sm" data-redraw="${last.id}">${last.choice ? "Winner not here: draw another ticket" : "Winner not here: redraw this prize"}</button>` : `<span class="pill error">forfeited</span>`}
           <button class="btn danger sm" data-undo="${last.id}">Undo (mistake)</button>
-          <button class="btn ghost sm" id="rIdle">Back to “next prize” screen</button>
-        </div></div>` : "";
+          ${choosing ? "" : `<button class="btn ghost sm" id="rIdle">Back to the waiting screen</button>`}
+        </div>${assignBox}</div>` : "";
+    if ($("rAssignSel") && assignPick && [...$("rAssignSel").options].some((o) => o.value === assignPick)) $("rAssignSel").value = assignPick;
 
     // Givebutter tickets
     $("rGbInfo").innerHTML = r.gb.count
@@ -441,7 +456,7 @@
     if (!prizeDraft) { $("rTitle").value = r.title; renderPrizeRows(r.prizes); }
 
     $("rResults").innerHTML = `<thead><tr><th>Time</th><th>Prize</th><th>Entry</th><th>Name</th><th>Status</th><th></th></tr></thead><tbody>${
-      r.draws.slice().reverse().map((d) => `<tr><td class="dim" style="white-space:nowrap">${new Date(d.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</td><td>${esc(d.prizeName)}</td><td><b>${esc(d.number)}</b></td><td>${esc(d.name)}${d.email ? `<div class="dim">${esc(d.email)}</div>` : ""}</td><td><span class="pill ${d.status === "won" ? "won" : "error"}">${d.status === "won" ? "Winner" : "Not present"}</span></td><td class="r"><button class="btn danger sm" data-undo="${d.id}">Undo</button></td></tr>`).join("") ||
+      r.draws.slice().reverse().map((d) => `<tr><td class="dim" style="white-space:nowrap">${new Date(d.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</td><td>${d.prizeName ? esc(d.prizeName) + (d.choice ? ' <span class="dim">(chosen)</span>' : "") : `<span class="dim">${d.status === "won" ? "choosing…" : "—"}</span>`}</td><td><b>${esc(d.number)}</b></td><td>${esc(d.name)}${d.email ? `<div class="dim">${esc(d.email)}</div>` : ""}</td><td><span class="pill ${d.status === "won" ? "won" : "error"}">${d.status === "won" ? "Winner" : "Not present"}</span></td><td class="r"><button class="btn danger sm" data-undo="${d.id}">Undo</button></td></tr>`).join("") ||
       `<tr><td colspan="6" class="muted">No draws yet.</td></tr>`
     }</tbody>`;
   }
@@ -483,6 +498,8 @@
   };
 
   /* Draw controls */
+  $("rLast").addEventListener("change", (e) => { if (e.target.id === "rAssignSel") assignPick = e.target.value; });
+  $("rMode").onchange = (e) => rApi("raffleAwardMode", { awardMode: e.target.value }, "rDrawMsg").catch(() => {});
   $("rLive").onchange = (e) => rApi("raffleLive", { live: e.target.checked }, "rDrawMsg").catch(() => {});
   $("rDraw").onclick = async () => {
     msg("rDrawMsg", "");
@@ -490,11 +507,18 @@
     $("rDraw").disabled = true;
     try {
       const r = await rApi("raffleDraw", { prizeId: $("rPrizeSel").value }, "rDrawMsg");
-      msg("rDrawMsg", `Drawing on screen now… the reel lands on ${r.drawn.number} in about 8 seconds.`);
+      msg("rDrawMsg", `Drawing on screen now… the reel lands on ${r.drawn.number} in about 8 seconds.${r.drawn.choice ? " Then pick the prize they choose below." : ""}`);
     } catch { renderRaffle(); }
   };
   document.getElementById("tab-raffle").addEventListener("click", async (e) => {
     const rd = e.target.closest("[data-redraw]"), un = e.target.closest("[data-undo]"), rm = e.target.closest("[data-rmman]");
+    const as = e.target.closest("[data-assign]");
+    if (as) {
+      const prizeId = $("rAssignSel").value;
+      if (!prizeId) return msg("rDrawMsg", "Pick the prize they chose first.", false);
+      try { const r = await rApi("raffleAssign", { drawId: as.dataset.assign, prizeId }, "rDrawMsg"); assignPick = ""; msg("rDrawMsg", `${r.assigned.name} gets ${r.assigned.prizeName}. It's off the list.`); } catch {}
+      return;
+    }
     if (e.target.id === "rIdle") return rApi("raffleShowIdle", {}, "rDrawMsg").catch(() => {});
     if (e.target.id === "rPartClear") {
       e.preventDefault();
@@ -612,8 +636,8 @@
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-  $("rResultsCsv").onclick = () => download("raffle-results.csv", [["Time", "Prize", "Entry #", "Name", "Email", "Source", "Status"],
-    ...raffle.draws.map((d) => [new Date(d.at).toLocaleString(), d.prizeName, d.number, d.name, d.email, d.type || d.source, d.status === "won" ? "Winner" : "Not present"])]);
+  $("rResultsCsv").onclick = () => download("raffle-results.csv", [["Time", "Prize", "Entry #", "Name", "Email", "Source", "Status", "How awarded"],
+    ...raffle.draws.map((d) => [new Date(d.at).toLocaleString(), d.prizeName || (d.status === "won" ? "(not chosen yet)" : ""), d.number, d.name, d.email, d.type || d.source, d.status === "won" ? "Winner" : "Not present", d.choice ? "Winner chose" : "Drawn for prize"])]);
   $("rEntriesCsv").onclick = async () => {
     const { entries } = await api("raffleEntries");
     download("raffle-entries.csv", [["Entry #", "Name", "Email", "Source", "Drawn"], ...entries.map((e) => [e.number, e.name, e.email, e.type, e.drawn])]);

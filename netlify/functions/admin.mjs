@@ -273,12 +273,24 @@ const actions = {
       const byId = new Map(d.prizes.map((p) => [p.id, p]));
       const next = input.map((p) => ({ id: byId.has(p.id) ? p.id : randomUUID(), name: str(p.name, 160), detail: str(p.detail, 300), image: str(p.image, 1000) })).filter((p) => p.name);
       const keep = new Set(next.map((p) => p.id));
-      const orphan = d.draws.find((x) => x.status === "won" && !keep.has(x.prizeId));
+      const orphan = d.draws.find((x) => x.status === "won" && x.prizeId && !keep.has(x.prizeId));
       if (orphan) throw new HttpError(409, `“${orphan.prizeName}” already has a winner, so it can't be removed. Undo that draw first.`);
       d.prizes = next;
       if ("title" in body) d.title = str(body.title, 120) || R.EMPTY.title;
+      if ("awardMode" in body) d.awardMode = body.awardMode === "choice" ? "choice" : "prize";
     });
     return raffleView(doc);
+  },
+
+  async raffleAwardMode({ s, body }) {
+    const doc = await R.updateRaffle(s, (d) => { d.awardMode = body.awardMode === "choice" ? "choice" : "prize"; });
+    return raffleView(doc);
+  },
+
+  async raffleAssign({ s, body }) {
+    let assigned;
+    const doc = await R.updateRaffle(s, (d) => { assigned = R.assignPrize(d, str(body.drawId, 60), str(body.prizeId, 60)); d.current = assigned.id; });
+    return { ...raffleView(doc), assigned };
   },
 
   async raffleLive({ s, body }) {
@@ -300,7 +312,7 @@ const actions = {
       if (!prev || prev.status !== "won") throw new HttpError(404, "That draw isn't a current winner.");
       prev.status = "forfeit";
       prev.forfeitAt = new Date().toISOString();
-      drawn = R.draw(d, prev.prizeId);
+      drawn = R.draw(d, prev.choice ? "choice" : prev.prizeId);
       d.live = true;
     });
     return { ...raffleView(doc), drawn };
@@ -363,6 +375,9 @@ function raffleView(doc) {
       participants: { count: doc.participants.length, each: doc.participantsEach, loadedAt: doc.participantsLoadedAt, sample: doc.participants.slice(0, 5) },
       manual: doc.manual,
       prizes: doc.prizes,
+      awardMode: doc.awardMode || "prize",
+      available: R.availablePrizes(doc).map((p) => p.id),
+      choosing: R.choosingDraw(doc),
       next: R.nextPrize(doc),
       draws: doc.draws,
       pool: R.poolSummary(doc),

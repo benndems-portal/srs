@@ -131,6 +131,8 @@ After pulling tickets, the **ticket type** table sets how many raffle entries ea
 4. If the winner isn't present, click **Winner not here: redraw this prize**. Their winning entry stays out of the pool and the same prize is drawn again. **Undo** is for mistakes: it deletes the draw and puts the entry back.
 5. Untick the checkbox to send the screens back to the auction.
 
+**Winner chooses (prize table).** Set **How prizes are given** to *Draw a ticket, and the winner picks from the remaining prizes*. Each draw is then for a ticket rather than a prize. The screen shows the prizes still available, the reel lands on a winner, and the screen says to come choose. When they've picked, select that prize under **Prize they chose** and click **Assign prize**. The ticket and the prize both leave the list, and the screen shows what they chose. You can't start the next draw until the current winner has a prize, is marked not here, or the draw is undone. You can mix the two modes: pick a specific prize in **What this draw is for**, for example to save the grand prize for a final draw of its own.
+
 Rules: a winning entry leaves the pool, but the winner's other entries stay in, so one person can win more than one prize. Names appear in full on the raffle screen, and emails never leave the admin page. **Download results CSV** gives you the winners with emails for follow-up. **Download all entries CSV** lists every entry number, which is handy for posting or for checking the pool.
 
 Practice beforehand, then use **Reset raffle › Clear draws** to wipe the practice winners but keep the tickets and participants.

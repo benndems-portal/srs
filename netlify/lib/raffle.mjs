@@ -26,7 +26,11 @@ export const EMPTY = {
   participantsLoadedAt: null,
   manual: [], // { id, name, email, count, at }
   prizes: [], // { id, name, detail, image }
-  draws: [], // { id, prizeId, prizeName, number, name, email, source, at, status: "won" | "forfeit" }
+  // How prizes are given by default: "prize" = draw for a specific prize in order,
+  // "choice" = draw a ticket and the winner picks from the prizes still available.
+  awardMode: "prize",
+  // { id, prizeId (null while a "choice" winner is choosing), prizeName, choice, number, name, email, source, at, status: "won" | "forfeit" }
+  draws: [],
 };
 
 export async function getRaffle(s) {
@@ -87,22 +91,53 @@ export function poolSummary(doc) {
 }
 
 /* ---------------- Draw ---------------- */
-export function nextPrize(doc) {
-  const won = new Set(doc.draws.filter((d) => d.status === "won").map((d) => d.prizeId));
-  return doc.prizes.find((p) => !won.has(p.id)) || null;
+export function availablePrizes(doc) {
+  const won = new Set(doc.draws.filter((d) => d.status === "won" && d.prizeId).map((d) => d.prizeId));
+  return doc.prizes.filter((p) => !won.has(p.id));
 }
 
+export function nextPrize(doc) {
+  return availablePrizes(doc)[0] || null;
+}
+
+// A "choice" winner who hasn't picked a prize yet.
+export function choosingDraw(doc) {
+  return doc.draws.find((d) => d.status === "won" && d.choice && !d.prizeId) || null;
+}
+
+// prizeId "choice" = the winner picks from the remaining prizes afterwards.
 export function draw(doc, prizeId) {
-  const prize = prizeId ? doc.prizes.find((p) => p.id === prizeId) : nextPrize(doc);
-  if (!prize) throw new HttpError(400, doc.prizes.length ? "Every prize already has a winner." : "Add at least one prize first.");
-  if (doc.draws.some((d) => d.prizeId === prize.id && d.status === "won"))
-    throw new HttpError(409, `“${prize.name}” already has a winner. Use “Redraw” on that result if the winner isn't here.`);
+  const choice = prizeId === "choice";
+  const left = availablePrizes(doc);
+  const waiting = choosingDraw(doc);
+  if (waiting) throw new HttpError(409, `${waiting.name} (${waiting.number}) hasn't been given a prize yet. Assign their prize, or mark them not here, before drawing again.`);
+  let prize = null;
+  if (choice) {
+    if (!left.length) throw new HttpError(400, doc.prizes.length ? "Every prize has been given out." : "Add at least one prize first.");
+  } else {
+    prize = prizeId ? doc.prizes.find((p) => p.id === prizeId) : left[0];
+    if (!prize) throw new HttpError(400, doc.prizes.length ? "Every prize already has a winner." : "Add at least one prize first.");
+    if (!left.includes(prize)) throw new HttpError(409, `“${prize.name}” already has a winner. Use “Redraw” on that result if the winner isn't here.`);
+  }
   const pool = eligibleEntries(doc);
   if (!pool.length) throw new HttpError(400, "There are no entries left in the pool.");
   const e = pool[randomInt(pool.length)];
-  const d = { id: randomUUID(), prizeId: prize.id, prizeName: prize.name, number: e.number, name: e.name, email: e.email || "", source: e.source, type: e.type, at: new Date().toISOString(), status: "won", poolSize: pool.length };
+  const d = { id: randomUUID(), prizeId: prize ? prize.id : null, prizeName: prize ? prize.name : "", choice, number: e.number, name: e.name, email: e.email || "", source: e.source, type: e.type, at: new Date().toISOString(), status: "won", poolSize: pool.length };
   doc.draws.push(d);
   doc.current = d.id;
+  return d;
+}
+
+// Give a "choice" winner the prize they picked (or change it).
+export function assignPrize(doc, drawId, prizeId) {
+  const d = doc.draws.find((x) => x.id === drawId);
+  if (!d || d.status !== "won") throw new HttpError(404, "That draw isn't a current winner.");
+  const prize = doc.prizes.find((p) => p.id === prizeId);
+  if (!prize) throw new HttpError(400, "Pick a prize.");
+  if (prize.id !== d.prizeId && !availablePrizes(doc).includes(prize)) throw new HttpError(409, `“${prize.name}” has already been given out.`);
+  d.prizeId = prize.id;
+  d.prizeName = prize.name;
+  d.assignedAt = new Date().toISOString();
   return d;
 }
 
@@ -119,13 +154,15 @@ function sample(arr, n) {
 export function screenSnapshot(doc) {
   const entries = buildEntries(doc);
   const eligible = eligibleEntries(doc, entries);
-  const winners = new Map(doc.draws.filter((d) => d.status === "won").map((d) => [d.prizeId, d]));
+  const winners = new Map(doc.draws.filter((d) => d.status === "won" && d.prizeId).map((d) => [d.prizeId, d]));
   const cur = doc.draws.find((d) => d.id === doc.current) || null;
   const prizeOf = (id) => doc.prizes.find((p) => p.id === id) || {};
   const reelFrom = eligible.length ? eligible : entries;
   return {
     title: doc.title,
     live: !!doc.live,
+    awardMode: doc.awardMode || "prize",
+    available: availablePrizes(doc).length,
     entries: entries.length,
     eligible: eligible.length,
     people: new Set(entries.map(personKey)).size,
@@ -139,7 +176,8 @@ export function screenSnapshot(doc) {
           drawId: cur.id,
           at: cur.at,
           status: cur.status,
-          prize: { id: cur.prizeId, name: cur.prizeName, detail: prizeOf(cur.prizeId).detail || "", image: prizeOf(cur.prizeId).image || "" },
+          choice: !!cur.choice,
+          prize: cur.prizeId ? { id: cur.prizeId, name: cur.prizeName, detail: prizeOf(cur.prizeId).detail || "", image: prizeOf(cur.prizeId).image || "" } : null,
           winner: { name: cur.name, number: cur.number, source: cur.source },
           // Names that fly past on the reel before it lands on the winner.
           reel: sample(reelFrom.filter((e) => e.number !== cur.number), REEL_SIZE).map((e) => ({ number: e.number, name: e.name })),

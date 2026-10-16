@@ -46,6 +46,18 @@
 .r-winner-sub b { color: var(--gold); }
 @keyframes pop { from { opacity: 0; transform: scale(0.6); } }
 
+/* "Winner chooses" mode: the prizes still on the table */
+.r-idle.choice .r-idle-main { flex: none; display: block; margin-top: 0.6rem; }
+.r-idle.choice .r-prize-big { font-size: 3.4rem; }
+.r-avail { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); align-content: start; gap: 0.9rem; margin: 1.4rem 0; }
+.r-avail div { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-radius: 0.8rem; padding: 1rem 1.2rem; }
+.r-avail b { display: block; font-size: 1.5rem; line-height: 1.2; }
+.r-avail span { display: block; color: var(--muted); font-size: 1.05rem; margin-top: 0.3rem; }
+.r-winner-sub .chose { display: block; margin-top: 0.5rem; color: var(--text); font-family: Fraunces, Georgia, serif; font-size: 2.6rem; animation: pop 0.7s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.r-winner-sub .ask { display: block; margin-top: 0.4rem; color: var(--gold); font-weight: 700; font-size: 1.8rem; }
+.r-prizes li.avail .pi { background: var(--gold-soft); color: var(--gold); }
+.r-prizes li.avail .pw { color: var(--gold); }
+
 /* Prize list */
 .r-prizes { overflow: hidden; display: flex; flex-direction: column; }
 .r-prizes ol { list-style: none; margin: 0; padding: 0; overflow: hidden; -webkit-mask-image: linear-gradient(#000 85%, transparent); mask-image: linear-gradient(#000 85%, transparent); }

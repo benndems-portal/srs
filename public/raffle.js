@@ -11,6 +11,7 @@
   let data = null;
   let clockOffset = 0;
   let shownDraw = null; // drawId currently on the reel
+  let shownPrize = null; // prize shown for that draw (changes when a "choice" winner is assigned one)
   let spinning = false;
 
   /* ---------------- Data ---------------- */
@@ -49,6 +50,11 @@
       showIdle();
       return;
     }
+    if (cur.drawId === shownDraw && !spinning && (cur.prize?.id || null) !== shownPrize) {
+      // Staff assigned (or changed) the prize this winner chose.
+      land(cur, !!cur.prize);
+      return;
+    }
     if (cur.drawId !== shownDraw) {
       shownDraw = cur.drawId;
       const elapsed = Date.now() + clockOffset - Date.parse(cur.at);
@@ -58,15 +64,20 @@
   }
 
   function renderPrizes() {
-    const curPrize = data.current?.prize.id;
-    const nowId = curPrize || data.next?.id;
+    const cur = data.current;
+    const curPrize = cur?.prize?.id;
+    const choiceMode = cur ? cur.choice : data.awardMode === "choice";
+    // Choosing: every remaining prize is "available". Prize mode: one prize is "now".
+    const nowId = choiceMode ? null : curPrize || data.next?.id;
+    const choosingNow = cur && cur.choice && !cur.prize && !spinning;
     $("prizeList").innerHTML = data.prizes.length
       ? data.prizes.map((p, i) => {
           const showWinner = p.winner && !(spinning && p.id === curPrize);
-          return `<li class="${showWinner ? "won" : ""}${p.id === nowId && !showWinner ? " now" : ""}">
+          const avail = choiceMode && !showWinner;
+          return `<li class="${showWinner ? "won" : ""}${p.id === nowId && !showWinner ? " now" : ""}${avail ? " avail" : ""}">
             <span class="pi">${showWinner ? "✓" : i + 1}</span>
             <span class="pn">${esc(p.name)}</span>
-            <span class="pw">${showWinner ? esc(p.winner.name) + " · " + esc(p.winner.number) : p.id === nowId ? (spinning ? "Drawing now…" : "Up next") : esc(p.detail || "")}</span>
+            <span class="pw">${showWinner ? esc(p.winner.name) + " · " + esc(p.winner.number) : p.id === nowId ? (spinning ? "Drawing now…" : "Up next") : avail && choosingNow ? "Available to choose" : esc(p.detail || "")}</span>
           </li>`;
         }).join("")
       : `<li class="empty dim-note">Prizes will appear here.</li>`;
@@ -75,6 +86,20 @@
   function showIdle() {
     $("draw").hidden = true;
     $("idle").hidden = false;
+    const choice = data.awardMode === "choice" && data.available > 0;
+    $("idle").classList.toggle("choice", choice);
+    $("idleAvail").hidden = !choice;
+    if (choice) {
+      const left = data.prizes.filter((p) => !p.winner);
+      document.querySelector(".r-kicker").textContent = "Next ticket drawn picks a prize";
+      $("idlePrize").textContent = `${left.length} prize${left.length === 1 ? "" : "s"} still available`;
+      $("idleDetail").textContent = "";
+      $("idleImg").hidden = true;
+      $("idleAvail").innerHTML = left.map((p) => `<div><b>${esc(p.name)}</b>${p.detail ? `<span>${esc(p.detail)}</span>` : ""}</div>`).join("");
+      document.querySelector(".r-idle-foot").hidden = false;
+      return;
+    }
+    document.querySelector(".r-kicker").textContent = "Up next";
     const n = data.next;
     $("idlePrize").textContent = n ? n.name : data.prizes.length ? "All prizes have been drawn!" : "Get ready!";
     $("idleDetail").textContent = n ? n.detail || "" : data.prizes.length ? "Congratulations to all of our winners, and thank you!" : "";
@@ -90,8 +115,8 @@
     $("idle").hidden = true;
     $("draw").hidden = false;
     $("winner").hidden = true;
-    $("drawKicker").textContent = "Drawing for";
-    $("drawPrize").textContent = cur.prize.name;
+    $("drawKicker").textContent = cur.prize ? "Drawing for" : "Drawing a ticket";
+    $("drawPrize").textContent = cur.prize ? cur.prize.name : "The winner picks a prize";
     const reel = $("reel"), strip = $("strip");
     reel.classList.remove("landed");
 
@@ -126,10 +151,13 @@
   }
 
   function land(cur, celebrate) {
+    shownPrize = cur.prize?.id || null;
     $("reel").classList.add("landed");
-    $("drawKicker").textContent = "Winner of";
+    $("drawKicker").textContent = !cur.choice ? "Winner of" : cur.prize ? "Winner chose" : "We have a winner";
+    $("drawPrize").textContent = cur.prize ? cur.prize.name : `${data.available} prize${data.available === 1 ? "" : "s"} to choose from`;
     $("winnerName").textContent = cur.winner.name;
-    $("winnerSub").innerHTML = `Ticket <b>${esc(cur.winner.number)}</b>${cur.winner.source === "participant" ? " · race participant entry" : ""}`;
+    $("winnerSub").innerHTML = `Ticket <b>${esc(cur.winner.number)}</b>${cur.winner.source === "participant" ? " · race participant entry" : ""}` +
+      (cur.choice ? (cur.prize ? `<span class="chose">🎁 ${esc(cur.prize.name)}</span>` : `<span class="ask">Come up and choose from the prizes on the table</span>`) : "");
     $("winner").hidden = false;
     renderPrizes();
     if (celebrate) { confetti(); fanfare(); }
