@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Sell Raffle Tickets</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0b1020; --bg-2:#111831; --card:#161e3c; --line:rgba(255,255,255,.1); --text:#f4f1ea; --muted:#9aa3c0; --dim:#6d7699; --gold:#f2c14e; --green:#39d98a; --red:#ff5a6a; --r:12px; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+    [hidden] { display:none !important; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    header.bar { border-bottom: 1px solid var(--line); background: rgba(11,16,32,.92); position: sticky; top: 0; z-index: 5; }
+    header.bar .wrap { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding-top:10px; padding-bottom:10px; }
+    header.bar h1 { margin:0; font-size:18px; flex:1; white-space:nowrap; }
+    .tot { display:flex; gap:8px; flex-wrap:wrap; }
+    .tot span { background: var(--bg-2); border:1px solid var(--line); border-radius: 20px; padding: 4px 12px; font-size: 14px; color: var(--muted); }
+    .tot b { color: var(--text); }
+    .grid { display:grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: var(--bg-2); border:1px solid var(--line); border-radius: var(--r); padding: 18px; }
+    h2 { font-size: 18px; margin: 0 0 14px; }
+    label { display:block; font-size: 13px; color: var(--muted); font-weight: 600; margin: 12px 0 5px; }
+    input { width:100%; background: var(--bg); color: var(--text); border:1px solid var(--line); border-radius: 10px; padding: 14px; font: inherit; font-size: 18px; }
+    input:focus { outline: 2px solid var(--gold); outline-offset: -1px; }
+    .qty, .pay { display:flex; gap: 8px; flex-wrap: wrap; }
+    .qty button, .pay button { flex: 1; min-width: 86px; background: var(--card); color: var(--text); border: 2px solid var(--line); border-radius: 12px; padding: 12px 10px; font: inherit; cursor: pointer; }
+    .qty button b { display:block; font-size: 24px; }
+    .qty button small, .pay button small { color: var(--muted); font-size: 13px; }
+    .pay button { font-weight: 700; font-size: 17px; }
+    .qty button.on, .pay button.on { border-color: var(--gold); background: rgba(242,193,78,.12); }
+    .row { display:flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+    .row > div { flex: 1; min-width: 140px; }
+    .btn { background: var(--gold); color:#1a1406; border:0; border-radius: 12px; padding: 12px 18px; font: inherit; font-weight: 800; cursor: pointer; }
+    .btn.big { width: 100%; font-size: 22px; padding: 18px; margin-top: 18px; }
+    .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 600; }
+    .btn.sm { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
+    .btn.danger { background: transparent; color: var(--red); border: 1px solid rgba(255,90,106,.4); font-weight: 600; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .msg { padding: 10px 12px; border-radius: 10px; margin-top: 12px; font-weight: 600; }
+    .msg.ok { background: rgba(57,217,138,.12); color: var(--green); }
+    .msg.err { background: rgba(255,90,106,.12); color: var(--red); }
+    .msg.warn { background: rgba(242,193,78,.12); color: var(--gold); }
+    .muted { color: var(--muted); } .dim { color: var(--dim); font-size: 13px; }
+    .opts { display:flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; font-size: 14px; color: var(--muted); }
+    .opts label { display:flex; gap: 6px; align-items:center; margin: 0; font-weight: 500; }
+    .opts input { width: auto; }
+    /* Done card */
+    .done { border-color: var(--green); text-align: center; }
+    .done .nums { display:flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 14px 0; }
+    .done .nums span { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 26px; font-weight: 800; color: var(--gold); }
+    .done .who { font-size: 22px; font-weight: 800; }
+    /* Sales list */
+    .sales { list-style: none; margin: 0; padding: 0; }
+    .sales li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .sales li.void { opacity: .45; }
+    .sales .top { display:flex; gap: 8px; align-items: baseline; }
+    .sales .nm { font-weight: 700; flex: 1; }
+    .sales .amt { font-weight: 800; }
+    .sales .nums { color: var(--gold); font-weight: 700; font-size: 14px; margin-top: 2px; word-break: break-word; }
+    .sales .acts { display:flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+    .pill { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 20px; background: rgba(255,255,255,.08); color: var(--muted); }
+    .pill.sent { color: var(--green); background: rgba(57,217,138,.12); }
+    .pill.failed, .pill.not-configured { color: var(--red); background: rgba(255,90,106,.12); }
+    .pill.card { color: #6fa8ff; background: rgba(111,168,255,.14); }
+    .pill.cash { color: var(--green); background: rgba(57,217,138,.12); }
+    .login { max-width: 380px; margin: 12vh auto; }
+
+    /* ---------- The printed slip (80 mm receipt paper, ~72 mm printable) ---------- */
+    #slip { display: none; }
+    @media print {
+      @page { margin: 0; }
+      html, body { background: #fff !important; }
+      body > *:not(#slip) { display: none !important; }
+      #slip { display: block; width: 72mm; margin: 0 auto; padding: 3mm 0 6mm; color: #000; font: 11pt/1.3 Inter, Arial, sans-serif; }
+    }
+    #slip .ev { text-align: center; font-weight: 800; font-size: 13pt; line-height: 1.2; }
+    #slip .banner { margin: 2.5mm 0; background: #000; color: #fff; text-align: center; font-weight: 800; letter-spacing: .25em; font-size: 12pt; padding: 1.5mm 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #slip .meta { display:flex; justify-content: space-between; font-size: 9pt; }
+    #slip .name { font-size: 13pt; font-weight: 800; margin: 2mm 0 1mm; }
+    #slip .count { font-size: 10pt; }
+    #slip .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 3mm; margin: 3mm 0; border-top: 0.4mm dashed #000; border-bottom: 0.4mm dashed #000; padding: 2.5mm 0; }
+    #slip .nums.one { grid-template-columns: 1fr; text-align: center; }
+    #slip .nums span { font: 800 17pt/1.15 "Courier New", monospace; letter-spacing: .02em; }
+    #slip .nums.one span { font-size: 30pt; }
+    #slip .info { text-align: center; font-weight: 700; font-size: 10pt; }
+    #slip .foot { text-align: center; font-size: 9pt; margin-top: 2mm; }
+    #slip .ref { text-align: center; font-size: 8pt; margin-top: 2mm; }
+    #slip .cut { text-align: center; font-size: 8pt; margin-top: 4mm; letter-spacing: .15em; }
+  </style>
+</head>
+<body>
+  <section id="loginView" class="wrap" hidden>
+    <div class="card login">
+      <h2>Raffle sales sign in</h2>
+      <form id="loginForm">
+        <label for="pw">Staff password</label>
+        <input id="pw" type="password" autocomplete="current-password" required>
+        <button class="btn big">Sign in</button>
+        <div id="loginMsg"></div>
+      </form>
+    </div>
+  </section>
+
+  <div id="appView" hidden>
+    <header class="bar"><div class="wrap">
+      <h1 id="hdr">Sell raffle tickets</h1>
+      <div class="tot" id="totals"></div>
+      <a class="btn ghost sm" href="/admin" target="_blank" rel="noopener">Staff page ↗</a>
+    </div></header>
+
+    <main class="wrap">
+      <div id="smsWarn" class="msg warn" hidden>Texting isn't set up yet (Twilio settings in Netlify). Sales still work and print. Text the numbers later from the staff page.</div>
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <!-- Sale form -->
+          <form class="card" id="saleForm" autocomplete="off">
+            <h2>New sale</h2>
+            <label for="fName">Buyer's name *</label>
+            <input id="fName" name="name" required placeholder="First and last name">
+            <label for="fPhone">Mobile number <span class="dim">(we text their ticket numbers)</span></label>
+            <input id="fPhone" name="phone" type="tel" inputmode="tel" placeholder="555-123-4567">
+            <div id="emailWrap" hidden><label for="fEmail">Email <span class="dim">(optional)</span></label><input id="fEmail" name="email" type="email" placeholder="name@example.com"></div>
+            <a href="#" id="addEmail" class="dim" style="display:inline-block;margin-top:6px">+ add email</a>
+
+            <label>How many tickets?</label>
+            <div class="qty" id="qty"></div>
+            <div class="row" style="margin-top:8px">
+              <div><label for="fCount" style="margin-top:0">Other amount</label><input id="fCount" type="number" min="1" max="500" inputmode="numeric" placeholder="#"></div>
+              <div><label for="fAmount" style="margin-top:0">Total ($)</label><input id="fAmount" inputmode="decimal"></div>
+            </div>
+
+            <label>Payment</label>
+            <div class="pay" id="pay">
+              <button type="button" data-pay="cash" class="on">💵 Cash</button>
+              <button type="button" data-pay="card">💳 Card <small>(charged in Givebutter)</small></button>
+            </div>
+            <div id="cardNote" class="dim" style="margin-top:6px" hidden>Run the card in Givebutter first (Tap to Pay or card reader), then tap Sell.</div>
+
+            <button class="btn big" id="sellBtn">Sell &amp; print</button>
+            <div class="opts">
+              <label><input type="checkbox" id="optPrint" checked> Print slip automatically</label>
+            </div>
+            <div id="saleMsg"></div>
+          </form>
+
+          <!-- Result -->
+          <div class="card done" id="done" hidden style="margin-top:16px">
+            <div class="dim">Sold</div>
+            <div class="who" id="dWho"></div>
+            <div class="nums" id="dNums"></div>
+            <div id="dSms"></div>
+            <div class="row" style="justify-content:center;margin-top:12px">
+              <button class="btn ghost" id="dPrint">🖨 Print again</button>
+              <button class="btn" id="dNew">Next sale ↵</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent sales -->
+        <div class="card">
+          <div class="row" style="align-items:center;margin-bottom:6px"><h2 style="margin:0;flex:1">Recent sales</h2><input id="find" placeholder="Find name, phone or #" style="font-size:15px;padding:10px;max-width:220px"></div>
+          <ul class="sales" id="sales"></ul>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="slip"></div>
+  <script src="/sell.js"></script>
+</body>
+</html>

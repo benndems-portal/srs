@@ -7,6 +7,7 @@ import { listCampaigns, givebutterSummary } from "../lib/givebutter.mjs";
 import { processWebhook, logDelivery, readLog } from "../lib/webhook.mjs";
 import { syncIfStale, readSyncMeta } from "../lib/gbsync.mjs";
 import * as R from "../lib/raffle.mjs";
+import { smsConfigured, normalizePhone, prettyPhone, sendSms, renderTemplate } from "../lib/sms.mjs";
 
 function checkPassword(req) {
   const expected = process.env.ADMIN_PASSWORD;
@@ -222,7 +223,7 @@ const actions = {
 
   async raffleImportTickets({ s, body }) {
     const rows = Array.isArray(body.tickets) ? body.tickets.slice(0, 20000) : [];
-    const tickets = R.dedupe(rows.map((r) => R.mapGbTicket({ ...r, number: str(r.number, 40), name: str(r.name, 120), email: str(r.email, 200), title: str(r.type, 120) })).filter((t) => t.number));
+    const tickets = R.dedupe(rows.map((r) => R.mapGbTicket({ ...r, number: str(r.number, 40), name: str(r.name, 120), email: str(r.email, 200), phone: str(r.phone, 40), title: str(r.type, 120) })).filter((t) => t.number));
     if (!tickets.length) throw new HttpError(400, "No ticket numbers found in that file.");
     const doc = await R.updateRaffle(s, (d) => setGbTickets(d, tickets, "csv"));
     return { ...raffleView(doc), pulled: tickets.length };
@@ -237,7 +238,7 @@ const actions = {
 
   async raffleLoadParticipants({ s, body }) {
     const rows = Array.isArray(body.participants) ? body.participants.slice(0, 10000) : [];
-    const list = rows.map((r) => ({ name: str(r.name, 120), email: str(r.email, 200), bib: str(r.bib, 20) })).filter((p) => p.name);
+    const list = rows.map((r) => ({ name: str(r.name, 120), email: str(r.email, 200), phone: str(r.phone, 40), bib: str(r.bib, 20) })).filter((p) => p.name);
     if (!list.length && !body.clear) throw new HttpError(400, "No names found in that file.");
     const each = Math.max(0, Math.min(20, Math.floor(Number(body.each ?? 2))));
     const doc = await R.updateRaffle(s, (d) => {
@@ -341,6 +342,123 @@ const actions = {
     return raffleView(doc);
   },
 
+  /* ---------------- Raffle: event sales + texting ---------------- */
+  async raffleSaveSalesConfig({ s, body }) {
+    const c = body.config || {};
+    const doc = await R.updateRaffle(s, (d) => {
+      const cur = d.salesConfig || {};
+      const price = num(c.price ?? cur.price);
+      const bundles = (Array.isArray(c.bundles) ? c.bundles : cur.bundles || [])
+        .map((b) => ({ count: Math.floor(Number(b.count) || 0), price: num(b.price) }))
+        .filter((b) => b.count > 1 && b.count <= 500 && b.price != null)
+        .sort((a, b) => a.count - b.count)
+        .slice(0, 8);
+      d.salesConfig = { ...cur, price: price ?? 0, bundles, slipFooter: str(c.slipFooter ?? cur.slipFooter, 200), drawingInfo: str(c.drawingInfo ?? cur.drawingInfo, 120) };
+      if ("smsTemplate" in body) {
+        const t = str(body.smsTemplate, 600);
+        if (t && !t.includes("{numbers}")) throw new HttpError(400, "The text message must include {numbers}.");
+        d.smsTemplate = t || R.EMPTY.smsTemplate;
+      }
+    });
+    return raffleView(doc);
+  },
+
+  async raffleSell({ s, body }) {
+    const name = str(body.name, 120);
+    const count = Math.floor(Number(body.count) || 0);
+    if (!name) throw new HttpError(400, "Enter the buyer's name.");
+    if (count < 1 || count > 500) throw new HttpError(400, "How many tickets? (1–500)");
+    const rawPhone = str(body.phone, 40);
+    const phone = normalizePhone(rawPhone);
+    if (rawPhone && !phone) throw new HttpError(400, "That phone number doesn't look right. Use 10 digits, e.g. 555-123-4567.");
+    const payment = body.payment === "card" ? "card" : "cash";
+    let sale;
+    let doc = await R.updateRaffle(s, (d) => {
+      const amount = num(body.amount) ?? R.salePrice(d.salesConfig, count);
+      sale = R.createSale(d, { name, phone, email: str(body.email, 200), count, payment, amount });
+    });
+    if (phone) doc = await textSale(s, doc, sale.id);
+    sale = doc.sales.find((x) => x.id === sale.id);
+    return { ...raffleView(doc), sale: saleView(sale) };
+  },
+
+  async raffleSales({ s }) {
+    const doc = await R.getRaffle(s);
+    return { sales: doc.sales.slice().reverse().map(saleView), summary: R.salesSummary(doc), salesConfig: doc.salesConfig, title: doc.title, smsConfigured: smsConfigured() };
+  },
+
+  async raffleVoidSale({ s, body }) {
+    const doc = await R.updateRaffle(s, (d) => {
+      const sale = d.sales.find((x) => x.id === body.id);
+      if (!sale) throw new HttpError(404, "Sale not found.");
+      const drawn = d.draws.find((x) => sale.numbers.includes(x.number));
+      if (drawn) throw new HttpError(409, `Ticket ${drawn.number} from this sale has already been drawn, so the sale can't be voided. Undo that draw first.`);
+      sale.voided = !body.restore;
+      sale.voidedAt = sale.voided ? new Date().toISOString() : null;
+    });
+    return raffleView(doc);
+  },
+
+  async raffleResendSale({ s, body }) {
+    let doc = await R.getRaffle(s);
+    const sale = doc.sales.find((x) => x.id === body.id);
+    if (!sale) throw new HttpError(404, "Sale not found.");
+    if (body.phone) {
+      const phone = normalizePhone(body.phone);
+      if (!phone) throw new HttpError(400, "That phone number doesn't look right.");
+      doc = await R.updateRaffle(s, (d) => { d.sales.find((x) => x.id === sale.id).phone = phone; });
+    }
+    doc = await textSale(s, doc, sale.id);
+    return { ...raffleView(doc), sale: saleView(doc.sales.find((x) => x.id === sale.id)) };
+  },
+
+  async raffleTestSms({ s, body }) {
+    const to = normalizePhone(body.phone);
+    if (!to) throw new HttpError(400, "Enter a phone number to send the test to.");
+    const doc = await R.getRaffle(s);
+    const text = renderTemplate(doc.smsTemplate, R.smsBody(doc, { name: "Test Buyer", numbers: ["S0001", "S0002"] }));
+    const r = await sendSms(to, text);
+    return { ok: true, text, sid: r.sid };
+  },
+
+  // Texts entry numbers to everyone with a phone who hasn't been texted yet,
+  // in batches (the page calls this repeatedly until nothing is left).
+  async raffleTextPending({ s, body }) {
+    let doc = await R.getRaffle(s);
+    const { groups, noPhone } = R.textQueue(doc, normalizePhone);
+    const sources = Array.isArray(body.sources) && body.sources.length ? body.sources : ["givebutter", "participant", "sale"];
+    const todo = groups.filter((g) => g.sources.some((x) => sources.includes(x)));
+    if (body.dryRun) return { pending: todo.length, pendingNumbers: todo.reduce((t, g) => t + g.numbers.length, 0), noPhone, preview: todo.slice(0, 5).map((g) => ({ to: prettyPhone(g.to), name: g.name, numbers: g.numbers })), smsConfigured: smsConfigured() };
+    if (!smsConfigured()) throw new HttpError(503, "Texting isn't set up in Netlify yet (Twilio environment variables).");
+    const batch = todo.slice(0, 15);
+    const results = await Promise.all(batch.map(async (g) => {
+      try { await sendSms(g.to, renderTemplate(doc.smsTemplate, R.smsBody(doc, g))); return { ...g, ok: true }; }
+      catch (e) { return { ...g, ok: false, error: e.message }; }
+    }));
+    doc = await R.updateRaffle(s, (d) => {
+      const now = new Date().toISOString();
+      for (const r of results) {
+        // Failed numbers are marked too, so one bad phone can't block the queue; resend from the log.
+        for (const n of r.numbers) d.texted[n] = r.ok ? now : "failed:" + now;
+        R.logSms(d, { to: r.to, name: r.name, numbers: r.numbers, ok: r.ok, error: r.error || "", kind: "bulk" });
+        for (const sale of d.sales) if (sale.numbers.some((n) => r.numbers.includes(n))) sale.sms = r.ok ? { status: "sent", at: now } : { status: "failed", at: now, error: r.error };
+      }
+    });
+    return { sent: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).map((r) => ({ to: prettyPhone(r.to), name: r.name, error: r.error })), remaining: Math.max(0, todo.length - batch.length), ...raffleView(doc) };
+  },
+
+  async raffleSmsLog({ s }) {
+    const doc = await R.getRaffle(s);
+    return { log: (doc.smsLog || []).map((l) => ({ ...l, to: prettyPhone(l.to) })) };
+  },
+
+  // Let failed or skipped numbers be texted again by the bulk sender.
+  async raffleRetryFailedTexts({ s }) {
+    let n = 0;
+    const doc = await R.updateRaffle(s, (d) => { for (const [k, v] of Object.entries(d.texted)) if (String(v).startsWith("failed:")) { delete d.texted[k]; n++; } });
+    return { cleared: n, ...raffleView(doc) };
+  },
+
   async listCampaigns() {
     return { campaigns: await listCampaigns() };
   },
@@ -362,6 +480,29 @@ function setGbTickets(d, tickets, source) {
   for (const t of tickets) if (!(t.type in d.typeEntries)) d.typeEntries[t.type] = R.defaultEntriesFor(t.type);
 }
 
+function saleView(x) {
+  return { ...x, phonePretty: prettyPhone(x.phone) };
+}
+
+// Text one sale's numbers to its buyer and record the result.
+async function textSale(s, doc, saleId) {
+  const sale = doc.sales.find((x) => x.id === saleId);
+  let result;
+  try {
+    if (!sale.phone) throw new Error("No phone number");
+    await sendSms(sale.phone, renderTemplate(doc.smsTemplate, R.smsBody(doc, sale)));
+    result = { status: "sent", at: new Date().toISOString() };
+  } catch (e) {
+    result = { status: smsConfigured() ? "failed" : "not-configured", at: new Date().toISOString(), error: e.message };
+  }
+  return R.updateRaffle(s, (d) => {
+    const x = d.sales.find((y) => y.id === saleId);
+    x.sms = result;
+    if (result.status === "sent") for (const n of x.numbers) d.texted[n] = result.at;
+    R.logSms(d, { to: x.phone, name: x.name, numbers: x.numbers, ok: result.status === "sent", error: result.error || "", kind: "sale" });
+  });
+}
+
 function raffleView(doc) {
   const types = {};
   for (const t of doc.gbTickets) types[t.type] = (types[t.type] || 0) + 1;
@@ -381,6 +522,11 @@ function raffleView(doc) {
       next: R.nextPrize(doc),
       draws: doc.draws,
       pool: R.poolSummary(doc),
+      salesConfig: doc.salesConfig,
+      smsTemplate: doc.smsTemplate,
+      smsConfigured: smsConfigured(),
+      salesSummary: R.salesSummary(doc),
+      textPending: R.textQueue(doc, normalizePhone).groups.length,
     },
   };
 }

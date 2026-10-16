@@ -21,3 +21,14 @@
   from = "/raffle"
   to = "/raffle.html"
   status = 200
+
+[[redirects]]
+  from = "/sell"
+  to = "/sell.html"
+  status = 200
+
+[[headers]]
+  for = "/sell*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store"

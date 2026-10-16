@@ -17,11 +17,11 @@ export const EMPTY = {
   title: "Raffle Drawing",
   live: false, // screens switch to the raffle while true
   current: null, // draw id shown on screen
-  gbTickets: [], // { id, number, name, email, type }
+  gbTickets: [], // { id, number, name, email, phone, type }
   gbPulledAt: null,
   gbSource: null, // "api" | "csv"
   typeEntries: {}, // ticket type title -> entries per ticket (0 = not a raffle ticket)
-  participants: [], // { name, email, bib }
+  participants: [], // { name, email, phone, bib }
   participantsEach: 2,
   participantsLoadedAt: null,
   manual: [], // { id, name, email, count, at }
@@ -31,6 +31,18 @@ export const EMPTY = {
   awardMode: "prize",
   // { id, prizeId (null while a "choice" winner is choosing), prizeName, choice, number, name, email, source, at, status: "won" | "forfeit" }
   draws: [],
+  // Tickets sold in person on /sell. Numbers are assigned once and stored, so they never change.
+  sales: [], // { id, numbers: ["S0001"], name, phone, email, count, payment: "cash" | "card", amount, at, voided, sms: { status, at, error } }
+  saleSeq: 0,
+  salesConfig: {
+    price: 10, // per ticket
+    bundles: [{ count: 3, price: 25 }, { count: 10, price: 75 }],
+    slipFooter: "Keep this slip. Good luck!",
+    drawingInfo: "", // e.g. "Drawing Sun Oct 25 at 4:00 PM"
+  },
+  smsTemplate: "{event}: thanks {first}! Your raffle ticket numbers: {numbers}. Good luck! Reply STOP to opt out.",
+  texted: {}, // entry number -> ISO time it was texted
+  smsLog: [], // last 300 sends { at, to, name, numbers, ok, error, kind }
 };
 
 export async function getRaffle(s) {
@@ -60,15 +72,19 @@ export function buildEntries(doc) {
   const out = [];
   for (const t of doc.gbTickets) {
     const n = Math.max(0, Math.min(20, Number(doc.typeEntries[t.type] ?? 0) || 0));
-    for (let k = 1; k <= n; k++) out.push({ number: n === 1 ? t.number : `${t.number}-${k}`, name: t.name, email: t.email, source: "givebutter", type: t.type });
+    for (let k = 1; k <= n; k++) out.push({ number: n === 1 ? t.number : `${t.number}-${k}`, name: t.name, email: t.email, phone: t.phone || "", source: "givebutter", type: t.type });
   }
   let seq = 0;
   for (const p of doc.participants) {
-    for (let k = 0; k < doc.participantsEach; k++) out.push({ number: "R" + pad(++seq), name: p.name, email: p.email, source: "participant", type: "Race participant" });
+    for (let k = 0; k < doc.participantsEach; k++) out.push({ number: "R" + pad(++seq), name: p.name, email: p.email, phone: p.phone || "", source: "participant", type: "Race participant" });
   }
   seq = 0;
   for (const m of doc.manual) {
-    for (let k = 0; k < m.count; k++) out.push({ number: "M" + pad(++seq), name: m.name, email: m.email, source: "manual", type: "Added by hand" });
+    for (let k = 0; k < m.count; k++) out.push({ number: "M" + pad(++seq), name: m.name, email: m.email, phone: "", source: "manual", type: "Added by hand" });
+  }
+  for (const sale of doc.sales || []) {
+    if (sale.voided) continue;
+    for (const number of sale.numbers) out.push({ number, name: sale.name, email: sale.email || "", phone: sale.phone || "", source: "sale", type: "Sold at event", saleId: sale.id });
   }
   return out;
 }
@@ -82,7 +98,7 @@ export function poolSummary(doc) {
   const entries = buildEntries(doc);
   const eligible = eligibleEntries(doc, entries);
   const people = new Set(entries.map(personKey));
-  const bySource = { givebutter: 0, participant: 0, manual: 0 };
+  const bySource = { givebutter: 0, participant: 0, manual: 0, sale: 0 };
   for (const e of entries) bySource[e.source]++;
   // Duplicate numbers would make a draw ambiguous — surface them.
   const seen = new Set(), dupes = new Set();
@@ -122,7 +138,7 @@ export function draw(doc, prizeId) {
   const pool = eligibleEntries(doc);
   if (!pool.length) throw new HttpError(400, "There are no entries left in the pool.");
   const e = pool[randomInt(pool.length)];
-  const d = { id: randomUUID(), prizeId: prize ? prize.id : null, prizeName: prize ? prize.name : "", choice, number: e.number, name: e.name, email: e.email || "", source: e.source, type: e.type, at: new Date().toISOString(), status: "won", poolSize: pool.length };
+  const d = { id: randomUUID(), prizeId: prize ? prize.id : null, prizeName: prize ? prize.name : "", choice, number: e.number, name: e.name, email: e.email || "", phone: e.phone || "", source: e.source, type: e.type, at: new Date().toISOString(), status: "won", poolSize: pool.length };
   doc.draws.push(d);
   doc.current = d.id;
   return d;
@@ -201,6 +217,7 @@ export function mapGbTicket(t) {
     number,
     name: name || "Ticket holder",
     email: String(t.email || "").trim(),
+    phone: String(t.phone || "").trim(),
     type: String(t.title || t.ticket_title || t.ticket_name || t.description || "Ticket").trim(),
   };
 }
@@ -234,4 +251,57 @@ export function dedupe(tickets) {
 // A ticket type counts as a raffle entry by default if its name says so.
 export function defaultEntriesFor(type) {
   return /raffle|drawing|sweepstake|50\s*\/\s*50|chance/i.test(type) ? 1 : 0;
+}
+
+/* ---------------- Event sales ---------------- */
+export function salePrice(cfg, count) {
+  const exact = (cfg.bundles || []).find((b) => b.count === count);
+  if (exact) return exact.price;
+  return Math.round(count * (Number(cfg.price) || 0) * 100) / 100;
+}
+
+export function createSale(doc, { name, phone, email, count, payment, amount }) {
+  const numbers = [];
+  for (let i = 0; i < count; i++) numbers.push("S" + pad(++doc.saleSeq));
+  const sale = { id: randomUUID(), numbers, name, phone, email, count, payment, amount, at: new Date().toISOString(), voided: false, sms: phone ? { status: "pending" } : { status: "none" } };
+  doc.sales.push(sale);
+  return sale;
+}
+
+export function salesSummary(doc) {
+  const live = (doc.sales || []).filter((x) => !x.voided);
+  const sum = (arr, f) => Math.round(arr.reduce((t, x) => t + (Number(f(x)) || 0), 0) * 100) / 100;
+  return {
+    sales: live.length,
+    tickets: sum(live, (x) => x.count),
+    cash: sum(live.filter((x) => x.payment === "cash"), (x) => x.amount),
+    card: sum(live.filter((x) => x.payment === "card"), (x) => x.amount),
+    voided: (doc.sales || []).length - live.length,
+  };
+}
+
+/* ---------------- Texting queue ---------------- */
+// Entries that have a phone and haven't been texted yet, grouped per phone number.
+export function textQueue(doc, normalize, entries = buildEntries(doc)) {
+  const groups = new Map();
+  let noPhone = 0;
+  for (const e of entries) {
+    if (doc.texted[e.number]) continue;
+    const to = normalize(e.phone);
+    if (!to) { noPhone++; continue; }
+    if (!groups.has(to)) groups.set(to, { to, name: e.name, numbers: [], sources: new Set() });
+    const g = groups.get(to);
+    g.numbers.push(e.number);
+    g.sources.add(e.source);
+  }
+  return { groups: [...groups.values()].map((g) => ({ ...g, sources: [...g.sources] })), noPhone };
+}
+
+export function smsBody(doc, { name, numbers }) {
+  const first = String(name || "").trim().split(/\s+/)[0] || "there";
+  return { first, numbers: numbers.join(", "), count: numbers.length, name: name || "", event: doc.title };
+}
+
+export function logSms(doc, entry) {
+  doc.smsLog = [{ at: new Date().toISOString(), ...entry }, ...(doc.smsLog || [])].slice(0, 300);
 }

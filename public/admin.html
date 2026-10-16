@@ -222,7 +222,7 @@
 
           <div class="card">
             <h2>Race participants</h2>
-            <p class="muted" style="margin-top:0">Upload a CSV of runners. Each runner gets free entries numbered <b>R0001</b>, <b>R0002</b>, and so on. Recognized columns: Name (or First name + Last name), Email, Bib. A file with only names and no header row also works.</p>
+            <p class="muted" style="margin-top:0">Upload a CSV of runners. Each runner gets free entries numbered <b>R0001</b>, <b>R0002</b>, and so on. Recognized columns: Name (or First name + Last name), Email, Phone/Mobile, Bib. A file with only names and no header row also works.</p>
             <div class="row">
               <input type="file" id="rPartFile" accept=".csv,text/csv,.txt" style="flex:1;min-width:200px">
               <div><label style="margin:0">Entries each</label><input id="rEach" type="number" min="0" max="20" value="2" style="width:90px"></div>
@@ -235,8 +235,35 @@
           </div>
 
           <div class="card">
-            <h2>Extra entries <span class="dim" style="font-weight:500">(optional)</span></h2>
-            <p class="muted" style="margin-top:0">For tickets sold in cash at the event, or anyone who should get entries by hand. They're numbered <b>M0001</b>, <b>M0002</b>, and so on.</p>
+            <h2>Selling at the event &amp; texting numbers</h2>
+            <p class="muted" style="margin-top:0">Volunteers sell on the <a href="/sell" target="_blank" rel="noopener"><b>Sell page</b></a>: name, phone, quantity, cash or card. It prints a receipt slip and texts the numbers (<b>S0001</b>, <b>S0002</b>, and so on). Every sale goes straight into the drawing.</p>
+            <div class="stats" id="rSalesStats" style="margin-bottom:12px"></div>
+            <div class="grid">
+              <div><label>Price per ticket ($)</label><input id="rPrice" inputmode="decimal"></div>
+              <div class="span2"><label>Bundles <span class="dim">(e.g. “3 for 25, 10 for 75”)</span></label><input id="rBundles" placeholder="3 for 25, 10 for 75"></div>
+              <div class="span2"><label>Drawing info printed on the slip</label><input id="rDrawInfo" placeholder="Drawing Sun Oct 25 at 4:00 PM"></div>
+              <div class="span2"><label>Slip footer</label><input id="rFooter" placeholder="Keep this slip. Good luck!"></div>
+              <div style="grid-column:1/-1"><label>Text message <span class="dim">({first}, {name}, {numbers}, {count}, {event})</span></label><textarea id="rSmsTpl" rows="2"></textarea><div class="dim" id="rSmsLen"></div></div>
+            </div>
+            <div class="row" style="margin-top:12px"><button class="btn" type="button" id="rSalesSave">Save</button><button class="btn ghost" type="button" id="rSalesCsv">Download sales CSV</button></div>
+            <div id="rSalesMsg"></div>
+
+            <h3 style="margin-top:22px">Texting (Twilio)</h3>
+            <div id="rTwilio" class="dim"></div>
+            <div class="row" style="margin-top:8px"><input id="rTestPhone" type="tel" placeholder="Your mobile number" style="max-width:220px"><button class="btn ghost" type="button" id="rTestSms">Send test text</button></div>
+            <div id="rTestMsg"></div>
+            <div class="winner" style="margin-top:14px">
+              <div id="rPendingInfo">Checking who still needs their numbers…</div>
+              <div id="rPendingPreview" class="dim" style="margin-top:6px"></div>
+              <div class="row" style="margin-top:10px"><button class="btn" type="button" id="rTextNow">Text ticket numbers now</button><button class="btn ghost sm" type="button" id="rRetryFailed">Retry failed texts</button><button class="btn ghost sm" type="button" id="rSmsLogBtn">Show text log</button></div>
+              <div id="rTextMsg"></div>
+              <div class="tablewrap" style="margin-top:10px"><table id="rSmsLog"></table></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Free entries <span class="dim" style="font-weight:500">(optional)</span></h2>
+            <p class="muted" style="margin-top:0">For anyone who should get entries without a sale, such as sponsors or volunteers. They're numbered <b>M0001</b>, <b>M0002</b>, and so on. Use the Sell page for paid tickets.</p>
             <form id="rManForm" class="row">
               <input name="name" placeholder="Name" style="flex:2;min-width:160px" required>
               <input name="email" placeholder="Email (optional)" style="flex:2;min-width:160px">

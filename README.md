@@ -133,6 +133,25 @@ After pulling tickets, the **ticket type** table sets how many raffle entries ea
 
 **Winner chooses (prize table).** Set **How prizes are given** to *Draw a ticket, and the winner picks from the remaining prizes*. Each draw is then for a ticket rather than a prize. The screen shows the prizes still available, the reel lands on a winner, and the screen says to come choose. When they've picked, select that prize under **Prize they chose** and click **Assign prize**. The ticket and the prize both leave the list, and the screen shows what they chose. You can't start the next draw until the current winner has a prize, is marked not here, or the draw is undone. You can mix the two modes: pick a specific prize in **What this draw is for**, for example to save the grand prize for a final draw of its own.
 
+### Selling tickets at the event (`/sell`)
+
+The Sell page is for volunteers on a laptop or tablet, and it uses the staff password. For each sale they enter a name, a mobile number, a quantity (1, or a bundle button), and cash or card. Card payments are charged in Givebutter's app or card reader first; the Sell page only records them. They then tap **Sell & print**. The app:
+- assigns permanent numbers **S0001, S0002, …** that go straight into the drawing,
+- prints one receipt slip per sale (event name, buyer, all their numbers, drawing info, footer),
+- texts the numbers to the buyer's phone.
+
+The page also has a running cash/card total, a search box, **Reprint**, **Text again** (which can fix a mistyped number), and **Void** (which removes the numbers from the drawing; refund the money separately). Set the price, bundles ("3 for 25, 10 for 75"), slip text and the text message under **/admin › Raffle › Selling at the event & texting numbers**. **Download sales CSV** gives you the cash/card reconciliation.
+
+**Receipt printer.** Any 80 mm thermal printer with an auto-cutter and a Mac/Windows driver works, for example the Epson TM-m30III or the Star TSP143IV (USB). Set it as the laptop's default printer, choose the 80 mm roll paper size, and turn on the driver's paper-saving/auto-cut option. To print with no dialog, start Chrome with `--kiosk-printing` (Mac: `open -a "Google Chrome" --args --kiosk-printing`). The slip sizes its own page to its contents.
+
+### Texting ticket numbers (Twilio)
+
+Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` in Netlify. Use the Messaging Service attached to your approved 10DLC campaign; `TWILIO_FROM=+1…` works instead. Then redeploy. **Send test text** checks the setup.
+- Sales on `/sell` are texted immediately.
+- Givebutter buyers and runners are texted from the staff page with **Text ticket numbers now**. It groups every entry by phone number (one text per person, listing all their numbers), uses the phone on the Givebutter ticket or the runners' CSV *Phone/Mobile* column, and texts each number only once. Pull tickets again after more sales and click it again: only the new numbers go out.
+- Failed texts (bad number, someone who replied STOP) show in **Show text log**. **Retry failed texts** puts them back in the queue.
+- The message template must include `{numbers}`. Keep "Reply STOP to opt out" in it.
+
 Rules: a winning entry leaves the pool, but the winner's other entries stay in, so one person can win more than one prize. Names appear in full on the raffle screen, and emails never leave the admin page. **Download results CSV** gives you the winners with emails for follow-up. **Download all entries CSV** lists every entry number, which is handy for posting or for checking the pool.
 
 Practice beforehand, then use **Reset raffle › Clear draws** to wipe the practice winners but keep the tickets and participants.
@@ -185,6 +204,8 @@ netlify/lib/                  storage, auction logic, webhook mapping, Givebutte
 public/index.html, display.js, styles.css   big-screen display
 public/admin.html, admin.js                 staff page (incl. Raffle tab)
 public/raffle.html, raffle.js, raffle.css   raffle drawing screen
+public/sell.html, sell.js     volunteer ticket sales + 80 mm receipt slip
+netlify/lib/sms.mjs           Twilio texting
 netlify/functions/raffle.mjs  GET /api/raffle  (public raffle screen data, no emails)
 netlify/lib/raffle.mjs        entries, draws, Givebutter ticket import
 scripts/local-server.mjs      local preview without Netlify

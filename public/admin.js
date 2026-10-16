@@ -393,11 +393,13 @@
 
   function renderRaffle() {
     const r = raffle, p = r.pool;
+    renderSalesCard();
     $("rStats").innerHTML = [
       ["Entries in the pool", `${p.eligible.toLocaleString()}${p.eligible !== p.entries ? ` <small style="font-size:13px;color:var(--muted)">of ${p.entries.toLocaleString()}</small>` : ""}`],
       ["People", p.people.toLocaleString()],
       ["Givebutter entries", p.bySource.givebutter.toLocaleString()],
       ["Participant entries", p.bySource.participant.toLocaleString()],
+      ["Sold at event", (p.bySource.sale || 0).toLocaleString()],
       ["Prizes drawn", `${r.draws.filter((d) => d.status === "won").length} / ${r.prizes.length}`],
     ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("") +
       (p.duplicateNumbers.length ? `<div class="msg err" style="grid-column:1/-1">Duplicate entry numbers: ${esc(p.duplicateNumbers.join(", "))}. Check the ticket import.</div>` : "");
@@ -429,7 +431,7 @@
     $("rLast").innerHTML = last ? `<div class="winner${choosing ? " choosing" : ""}">
         <div class="dim">${choosing ? "<b style=\"color:var(--gold)\">Winner is choosing a prize</b>" : esc(last.prizeName) + (last.choice ? " (their choice)" : "")} · drawn ${new Date(last.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })} from ${last.poolSize} entries</div>
         <div class="wn">${esc(last.name)} <span class="wnum">${esc(last.number)}</span></div>
-        <div class="dim">${esc(last.type || "")}${last.email ? " · " + esc(last.email) : ""}</div>
+        <div class="dim">${esc(last.type || "")}${last.email ? " · " + esc(last.email) : ""}${last.phone ? " · " + esc(last.phone) : ""}</div>
         <div class="row" style="margin-top:10px">
           ${last.status === "won" ? `<button class="btn ghost sm" data-redraw="${last.id}">${last.choice ? "Winner not here: draw another ticket" : "Winner not here: redraw this prize"}</button>` : `<span class="pill error">forfeited</span>`}
           <button class="btn danger sm" data-undo="${last.id}">Undo (mistake)</button>
@@ -559,11 +561,13 @@
     const iFirst = findCol(hdr, ["firstname", "attendeefirstname", "first"]);
     const iLast = findCol(hdr, ["lastname", "attendeelastname", "last"]);
     const iEmail = hdr.findIndex((h) => normH(h).includes("email"));
+    const iPhone = hdr.findIndex((h) => /phone|mobile|cell/.test(normH(h)));
     const iType = findCol(hdr, ["ticket", "ticketname", "tickettype", "tickettitle", "title", "item", "itemname", "description", "type"]);
     tixRows = iNum < 0 ? [] : data.map((r) => ({
       number: (r[iNum] || "").trim(),
       name: iName >= 0 && r[iName] ? r[iName].trim() : [iFirst >= 0 ? r[iFirst] : "", iLast >= 0 ? r[iLast] : ""].join(" ").trim(),
       email: iEmail >= 0 ? (r[iEmail] || "").trim() : "",
+      phone: iPhone >= 0 ? (r[iPhone] || "").trim() : "",
       type: iType >= 0 && r[iType] ? r[iType].trim() : "Ticket",
     })).filter((t) => t.number);
     if (!tixRows.length) { $("rTixPreview").textContent = "Couldn't find a ticket-number column in that file."; return; }
@@ -594,12 +598,14 @@
     const iFirst = findCol(hdr, ["firstname", "first", "fname", "givenname"]);
     const iLast = findCol(hdr, ["lastname", "last", "lname", "surname", "familyname"]);
     const iEmail = hdr.findIndex((h) => normH(h).includes("email"));
+    const iPhone = hdr.findIndex((h) => /phone|mobile|cell/.test(normH(h)));
     const iBib = findCol(hdr, ["bib", "bib#", "bibnumber", "bibno", "racenumber"]);
     const hasHeader = iName >= 0 || iFirst >= 0;
     const data = hasHeader ? rows.slice(1) : rows;
     partRows = data.map((r) => ({
       name: (hasHeader ? (iName >= 0 && r[iName] ? r[iName] : [iFirst >= 0 ? r[iFirst] : "", iLast >= 0 ? r[iLast] : ""].join(" ")) : r[0] || "").replace(/\s+/g, " ").trim(),
       email: iEmail >= 0 ? (r[iEmail] || "").trim() : "",
+      phone: iPhone >= 0 ? (r[iPhone] || "").trim() : "",
       bib: iBib >= 0 ? (r[iBib] || "").trim() : "",
     })).filter((p) => p.name);
     const seen = new Map();
@@ -636,8 +642,8 @@
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-  $("rResultsCsv").onclick = () => download("raffle-results.csv", [["Time", "Prize", "Entry #", "Name", "Email", "Source", "Status", "How awarded"],
-    ...raffle.draws.map((d) => [new Date(d.at).toLocaleString(), d.prizeName || (d.status === "won" ? "(not chosen yet)" : ""), d.number, d.name, d.email, d.type || d.source, d.status === "won" ? "Winner" : "Not present", d.choice ? "Winner chose" : "Drawn for prize"])]);
+  $("rResultsCsv").onclick = () => download("raffle-results.csv", [["Time", "Prize", "Entry #", "Name", "Email", "Phone", "Source", "Status", "How awarded"],
+    ...raffle.draws.map((d) => [new Date(d.at).toLocaleString(), d.prizeName || (d.status === "won" ? "(not chosen yet)" : ""), d.number, d.name, d.email, d.phone || "", d.type || d.source, d.status === "won" ? "Winner" : "Not present", d.choice ? "Winner chose" : "Drawn for prize"])]);
   $("rEntriesCsv").onclick = async () => {
     const { entries } = await api("raffleEntries");
     download("raffle-entries.csv", [["Entry #", "Name", "Email", "Source", "Drawn"], ...entries.map((e) => [e.number, e.name, e.email, e.type, e.drawn])]);
@@ -653,6 +659,84 @@
     const typing = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
     if (!typing && !prizeDraft) loadRaffle();
   }, 8000);
+
+
+  /* ---------- Raffle: event sales + texting ---------- */
+  let salesFormDirty = false;
+  const parseBundles = (t) => [...String(t).matchAll(/(\d+)\s*(?:for|=|@|:)\s*\$?\s*(\d+(?:\.\d+)?)/gi)].map((m) => ({ count: +m[1], price: +m[2] }));
+  const bundlesText = (b) => (b || []).map((x) => `${x.count} for ${x.price}`).join(", ");
+  function renderSalesCard() {
+    const r = raffle, c = r.salesConfig || {}, t = r.salesSummary;
+    $("rSalesStats").innerHTML = [["Sold at event", `${t.tickets} tickets`], ["Sales", t.sales], ["Cash", fmt$(t.cash)], ["Card", fmt$(t.card)]].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${esc(v)}</b></div>`).join("");
+    if (!salesFormDirty) {
+      $("rPrice").value = c.price ?? "";
+      $("rBundles").value = bundlesText(c.bundles);
+      $("rDrawInfo").value = c.drawingInfo || "";
+      $("rFooter").value = c.slipFooter || "";
+      $("rSmsTpl").value = r.smsTemplate || "";
+      smsLen();
+    }
+    $("rTwilio").innerHTML = r.smsConfigured ? `<span class="pill won">Connected</span> Twilio settings found in Netlify.` : `<span class="pill error">Not set up</span> Add <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code> and <code>TWILIO_MESSAGING_SERVICE_SID</code> in Netlify, then redeploy.`;
+  }
+  function smsLen() {
+    const sample = $("rSmsTpl").value.replace(/\{first\}/g, "Sarah").replace(/\{name\}/g, "Sarah Ramsey").replace(/\{numbers\}/g, "S0001, S0002, S0003").replace(/\{count\}/g, "3").replace(/\{event\}/g, raffle?.title || "");
+    $("rSmsLen").textContent = `${sample.length} characters with 3 numbers${sample.length > 160 ? " (sends as more than one text segment)" : ""}. Preview: ${sample}`;
+  }
+  for (const id of ["rPrice", "rBundles", "rDrawInfo", "rFooter", "rSmsTpl"]) $(id).addEventListener("input", () => { salesFormDirty = true; if (id === "rSmsTpl") smsLen(); });
+  $("rSalesSave").onclick = async () => {
+    const bundles = parseBundles($("rBundles").value);
+    if ($("rBundles").value.trim() && !bundles.length) return msg("rSalesMsg", "Write bundles like “3 for 25, 10 for 75”.", false);
+    try {
+      await rApi("raffleSaveSalesConfig", { config: { price: $("rPrice").value, bundles, drawingInfo: $("rDrawInfo").value, slipFooter: $("rFooter").value }, smsTemplate: $("rSmsTpl").value }, "rSalesMsg");
+      salesFormDirty = false; renderSalesCard();
+      msg("rSalesMsg", "Saved. The Sell page picks this up within 20 seconds (or on refresh).");
+    } catch {}
+  };
+  $("rTestSms").onclick = async () => {
+    try { const r = await api("raffleTestSms", { phone: $("rTestPhone").value }); msg("rTestMsg", `Sent: “${r.text}”`); } catch (e) { msg("rTestMsg", e.message, false); }
+  };
+  async function loadPending() {
+    try {
+      const p = await api("raffleTextPending", { dryRun: true });
+      $("rPendingInfo").innerHTML = p.pending
+        ? `<b>${p.pending}</b> ${p.pending === 1 ? "person has" : "people have"} <b>${p.pendingNumbers}</b> ticket numbers that haven't been texted yet.${p.noPhone ? ` <span class="dim">${p.noPhone} entries have no phone number and can't be texted.</span>` : ""}`
+        : `Everyone with a phone number has been texted.${p.noPhone ? ` <span class="dim">${p.noPhone} entries have no phone number.</span>` : ""}`;
+      $("rPendingPreview").innerHTML = p.preview.map((g) => `${esc(g.name)} ${esc(g.to)}: ${esc(g.numbers.join(", "))}`).join("<br>");
+      $("rTextNow").disabled = !p.pending || !p.smsConfigured;
+    } catch (e) { $("rPendingInfo").textContent = e.message; }
+  }
+  $("rTextNow").onclick = async () => {
+    if (!confirm("Text everyone their ticket numbers now? Each number is only ever texted once.")) return;
+    $("rTextNow").disabled = true;
+    let sent = 0; const failed = [];
+    try {
+      for (let i = 0; i < 100; i++) {
+        const r = await api("raffleTextPending", {});
+        sent += r.sent; failed.push(...r.failed);
+        if (r.raffle) { raffle = r.raffle; renderRaffle(); }
+        msg("rTextMsg", `Sent ${sent} texts… ${r.remaining} left`);
+        if (!r.remaining) break;
+      }
+      msg("rTextMsg", `Done: ${sent} texts sent.${failed.length ? ` ${failed.length} failed: ` + failed.slice(0, 5).map((f) => `${f.name} ${f.to} (${f.error})`).join("; ") : ""}`, !failed.length);
+    } catch (e) { msg("rTextMsg", e.message, false); }
+    loadPending(); if (!$("rSmsLog").hidden && $("rSmsLog").innerHTML) loadSmsLog();
+  };
+  $("rRetryFailed").onclick = async () => {
+    try { const r = await rApi("raffleRetryFailedTexts", {}, "rTextMsg"); msg("rTextMsg", r.cleared ? `${r.cleared} failed numbers are back in the queue. Fix the phone numbers if needed, then text again.` : "No failed texts."); loadPending(); } catch {}
+  };
+  async function loadSmsLog() {
+    const { log } = await api("raffleSmsLog");
+    $("rSmsLog").innerHTML = `<thead><tr><th>Time</th><th>To</th><th>Numbers</th><th>Result</th></tr></thead><tbody>${
+      log.map((l) => `<tr><td class="dim" style="white-space:nowrap">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</td><td>${esc(l.name)}<div class="dim" style="white-space:nowrap">${esc(l.to)}</div></td><td>${esc((l.numbers || []).join(", "))}</td><td><span class="pill ${l.ok ? "won" : "error"}">${l.ok ? "sent" : "failed"}</span>${l.error ? `<div class="dim">${esc(l.error)}</div>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No texts yet.</td></tr>`
+    }</tbody>`;
+  }
+  $("rSmsLogBtn").onclick = () => loadSmsLog().catch((e) => msg("rTextMsg", e.message, false));
+  $("rSalesCsv").onclick = async () => {
+    const { sales } = await api("raffleSales");
+    download("raffle-sales.csv", [["Time", "Name", "Phone", "Email", "Tickets", "Numbers", "Payment", "Amount", "Text", "Voided"],
+      ...sales.slice().reverse().map((x) => [new Date(x.at).toLocaleString(), x.name, x.phonePretty, x.email, x.count, x.numbers.join(" "), x.payment, x.amount, x.sms?.status || "", x.voided ? "yes" : ""])]);
+  };
+  $("tabs").addEventListener("click", (e) => { if (e.target.closest("[data-tab=raffle]")) loadPending(); });
 
   /* ---------- Start ---------- */
   async function start() {

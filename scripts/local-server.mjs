@@ -26,7 +26,7 @@ if (process.env.MOCK_GIVEBUTTER === "1") {
       const all = Array.from({ length: 230 }, (_, i) => {
         const f = first[i % 12], l = last[(i * 7) % 12];
         const title = i % 10 === 9 ? "5K Registration" : i % 3 ? "Raffle Ticket" : "Raffle Ticket (Bundle of 5)";
-        return { id: "tk_" + (9000 + i), id_suffix: "A" + (1001 + i), transaction_id: "tr_" + Math.floor(i / 3), name: f + " " + l, first_name: f, last_name: l, email: `${f}.${l}${i % 5}@example.com`.toLowerCase(), title, description: "", price: 10, created_at: new Date().toISOString() };
+        return { id: "tk_" + (9000 + i), id_suffix: "A" + (1001 + i), transaction_id: "tr_" + Math.floor(i / 3), name: f + " " + l, first_name: f, last_name: l, email: `${f}.${l}${i % 5}@example.com`.toLowerCase(), phone: i % 4 === 3 ? "" : `(555) 2${String(i % 40).padStart(2, "0")}-${String(1000 + (i % 40)).slice(-4)}`, title, description: "", price: 10, created_at: new Date().toISOString() };
       });
       const page = Number(u.searchParams.get("page") || 1), per = 100, last_page = Math.ceil(all.length / per);
       body = { data: all.slice((page - 1) * per, page * per), meta: { current_page: page, last_page, per_page: per, total: all.length } };
@@ -36,6 +36,22 @@ if (process.env.MOCK_GIVEBUTTER === "1") {
       { campaign_id: 4242, first_name: "Marcus", last_name: "Hill", amount: 1000, status: "succeeded", transacted_at: new Date(Date.now() - 900000).toISOString(), line_items: [{ description: "Paddle raise" }] },
     ] };
     return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+  };
+}
+
+// MOCK_TWILIO=1 fakes Twilio: numbers ending in 0000 fail, everything else "sends". GET /__mock/sms lists sent texts.
+const mockSms = [];
+if (process.env.MOCK_TWILIO === "1") {
+  process.env.TWILIO_ACCOUNT_SID ??= "ACmock";
+  process.env.TWILIO_AUTH_TOKEN ??= "mock";
+  process.env.TWILIO_MESSAGING_SERVICE_SID ??= "MGmock";
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (!String(url).startsWith("https://api.twilio.com/")) return prevFetch(url, opts);
+    const f = new URLSearchParams(String(opts.body));
+    if (f.get("To").endsWith("0000")) return new Response(JSON.stringify({ code: 21211, message: "The 'To' number is not a valid phone number." }), { status: 400 });
+    mockSms.push({ to: f.get("To"), body: f.get("Body") });
+    return new Response(JSON.stringify({ sid: "SM" + mockSms.length, status: "queued" }), { status: 201 });
   };
 }
 
@@ -64,6 +80,7 @@ const PORT = Number(process.env.PORT || 8888);
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
+  if (url.pathname === "/__mock/sms") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(mockSms)); }
   if (mockFeed && url.pathname === "/__mock/bid") {
     const chunks = []; for await (const c of req) chunks.push(c);
     const b = JSON.parse(Buffer.concat(chunks).toString());
@@ -84,7 +101,7 @@ http.createServer(async (req, res) => {
     res.writeHead(r.status, Object.fromEntries(r.headers));
     return res.end(Buffer.from(await r.arrayBuffer()));
   }
-  let p = url.pathname === "/" ? "/index.html" : url.pathname === "/admin" ? "/admin.html" : url.pathname === "/raffle" ? "/raffle.html" : url.pathname;
+  let p = url.pathname === "/" ? "/index.html" : url.pathname === "/admin" ? "/admin.html" : url.pathname === "/raffle" ? "/raffle.html" : url.pathname === "/sell" ? "/sell.html" : url.pathname;
   const file = normalize(join(PUBLIC, p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   try {
