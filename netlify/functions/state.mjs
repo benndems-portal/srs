@@ -4,6 +4,7 @@ import { store, getSettings, listItems, json } from "../lib/store.mjs";
 import { publicItem, summarize, recentBids } from "../lib/auction.mjs";
 import { givebutterSummary } from "../lib/givebutter.mjs";
 import { syncIfStale } from "../lib/gbsync.mjs";
+import { getScreen } from "../lib/raffle.mjs";
 
 export default async () => {
   try {
@@ -16,6 +17,7 @@ export default async () => {
     const now = Date.now();
     const pub = items.map((i) => publicItem(i, settings, now));
     const givebutter = await givebutterSummary(s, settings);
+    const raffle = await getScreen(s).catch(() => null);
     return json({
       serverTime: new Date(now).toISOString(),
       settings: {
@@ -31,6 +33,7 @@ export default async () => {
       summary: summarize(pub),
       recentBids: recentBids(items),
       givebutter,
+      raffleLive: !!raffle?.live, // auction screens switch to /raffle while true
       sync: sync ? { lastSuccess: sync.lastSuccess || null, ok: !sync.error } : null,
     });
   } catch (e) {

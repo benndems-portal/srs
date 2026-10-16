@@ -6,6 +6,7 @@ A big-screen display for a silent auction. It shows a countdown clock, every ite
 |---|---|---|
 | `/` | Guests, on TVs or projectors | Countdown, item cards (current bid, leader, # of bids, next minimum, status), auction totals, latest bids, most-wanted items, Givebutter campaign total. Pages rotate automatically. |
 | `/admin` | Staff and volunteers (password) | Givebutter live-sync status, manual bid entry as a backup, items, settings, webhook log. |
+| `/raffle` | Guests, on the same TVs | The raffle drawing: prize up next, a slot-machine reel that lands on the winner, and the list of prizes and winners. |
 | `/api/webhook` | Optional | Receives bid events from other tools, Givebutter events, and the fallback relay. |
 
 ## How bids get onto the screen
@@ -111,12 +112,39 @@ Behavior:
 
 Data is stored in **Netlify Blobs**, which is built in, so there's no database to set up.
 
+## Raffle drawing
+
+Staff run the raffle from **/admin › Raffle**. Entries come from three places, and every entry has its own number:
+
+| Source | Numbers | How to load |
+|---|---|---|
+| Givebutter raffle tickets | Givebutter's own, e.g. `A1042` | **Pull tickets from Givebutter** (API), or upload the Tickets export CSV (Givebutter › Tickets › filter to this campaign › Export) |
+| Race participants | `R0001`, `R0002`, … | Upload a CSV of runners. Each gets **2 entries** (changeable). Columns: Name *or* First name + Last name, optional Email and Bib. A plain list of names also works. |
+| Extra entries (cash sales, etc.) | `M0001`, `M0002`, … | Type a name and how many entries |
+
+After pulling tickets, the **ticket type** table sets how many raffle entries each ticket type is worth. Types with "raffle" in the name start at 1 and everything else starts at 0, so race registrations or event admission sold as tickets don't count unless you change them.
+
+**On draw day**
+1. Add the prizes in the order you'll draw them, then click **Save prizes**.
+2. Tick **Show the raffle on all display screens**. Every screen showing the auction switches to `/raffle` within a few seconds. You can also open `/raffle` directly on any screen.
+3. Click **Draw winner**. The server picks a random entry (Node's `crypto.randomInt`), and every screen spins the reel and lands on it about 8 seconds later, with confetti and an optional sound effect (press **S** on the screen, or click it once to allow sound).
+4. If the winner isn't present, click **Winner not here: redraw this prize**. Their winning entry stays out of the pool and the same prize is drawn again. **Undo** is for mistakes: it deletes the draw and puts the entry back.
+5. Untick the checkbox to send the screens back to the auction.
+
+Rules: a winning entry leaves the pool, but the winner's other entries stay in, so one person can win more than one prize. Names appear in full on the raffle screen, and emails never leave the admin page. **Download results CSV** gives you the winners with emails for follow-up. **Download all entries CSV** lists every entry number, which is handy for posting or for checking the pool.
+
+Practice beforehand, then use **Reset raffle › Clear draws** to wipe the practice winners but keep the tickets and participants.
+
+> Givebutter's API documents a ticket `id` and `id_suffix` but doesn't say which one holds the printed "A1042" number. The import uses whichever looks like a ticket number. After your first pull, check the sample shown under the button against a real ticket. If the numbers don't match, use the CSV export instead.
+
 ## Display options
 
-- `/?mode=rotate` (default): item card pages, then a standings board of all items, on repeat
+- `/?mode=rotate` (default): item card pages, then the standings board, then an **item spotlight** (one item, very large, easy to read across the room). The spotlight moves to the next item each cycle.
+- `/?mode=spotlight`: spotlight only, a new item every page (good for a second TV)
 - `/?mode=grid`: item cards only
 - `/?mode=board`: compact standings list only (good for a second screen)
 - Keyboard: **F** for full screen, **← →** to flip pages manually
+- Each page shows for "Seconds per page" (Admin › Settings › Display, default 15 s), including the spotlight
 - After the closing time, the screen switches to **Final results** with winners and shows your thank-you banner.
 - On phones, the page scrolls instead of rotating, so you can share the link with guests.
 
@@ -153,7 +181,10 @@ netlify/functions/gb-sync.mjs scheduled once-a-minute auction sync
 scripts/gb-relay.mjs          fallback relay if Givebutter blocks the server
 netlify/lib/                  storage, auction logic, webhook mapping, Givebutter client
 public/index.html, display.js, styles.css   big-screen display
-public/admin.html, admin.js                 staff page
+public/admin.html, admin.js                 staff page (incl. Raffle tab)
+public/raffle.html, raffle.js, raffle.css   raffle drawing screen
+netlify/functions/raffle.mjs  GET /api/raffle  (public raffle screen data, no emails)
+netlify/lib/raffle.mjs        entries, draws, Givebutter ticket import
 scripts/local-server.mjs      local preview without Netlify
 ```
 

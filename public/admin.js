@@ -59,7 +59,7 @@
     const b = e.target.closest("button");
     if (!b) return;
     for (const x of $("tabs").children) x.classList.toggle("on", x === b);
-    for (const t of ["bids", "items", "settings"]) $("tab-" + t).hidden = t !== b.dataset.tab;
+    for (const t of ["bids", "items", "raffle", "settings"]) $("tab-" + t).hidden = t !== b.dataset.tab;
   };
 
   /* ---------- Load + render ---------- */
@@ -370,6 +370,265 @@
     } catch (e) { msg("whMsg", e.message, false); }
   };
   $("tabs").addEventListener("click", (e) => { if (e.target.closest("[data-tab=settings]")) loadWebhookLog().catch(() => {}); });
+
+  /* ---------- Raffle ---------- */
+  let raffle = null;
+  let prizeDraft = null; // unsaved edits to the prize list
+  const normH = (h) => h.toLowerCase().replace(/[^a-z0-9#]/g, "");
+  const findCol = (hdr, names) => { const n = hdr.map(normH); for (const x of names) { const i = n.indexOf(x); if (i >= 0) return i; } return -1; };
+  const when = (t) => (t ? new Date(t).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : "");
+
+  async function rApi(action, params, msgEl) {
+    try {
+      const r = await api(action, params);
+      if (r.raffle) { raffle = r.raffle; renderRaffle(); }
+      return r;
+    } catch (e) {
+      if (msgEl) msg(msgEl, e.message, false);
+      throw e;
+    }
+  }
+  const loadRaffle = () => rApi("raffleState").catch(() => {});
+
+  function renderRaffle() {
+    const r = raffle, p = r.pool;
+    $("rStats").innerHTML = [
+      ["Entries in the pool", `${p.eligible.toLocaleString()}${p.eligible !== p.entries ? ` <small style="font-size:13px;color:var(--muted)">of ${p.entries.toLocaleString()}</small>` : ""}`],
+      ["People", p.people.toLocaleString()],
+      ["Givebutter entries", p.bySource.givebutter.toLocaleString()],
+      ["Participant entries", p.bySource.participant.toLocaleString()],
+      ["Prizes drawn", `${r.draws.filter((d) => d.status === "won").length} / ${r.prizes.length}`],
+    ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("") +
+      (p.duplicateNumbers.length ? `<div class="msg err" style="grid-column:1/-1">Duplicate entry numbers: ${esc(p.duplicateNumbers.join(", "))}. Check the ticket import.</div>` : "");
+
+    $("rLive").checked = r.live;
+    // Prize picker: next undrawn prize first.
+    const won = new Map(r.draws.filter((d) => d.status === "won").map((d) => [d.prizeId, d]));
+    const sel = $("rPrizeSel"), cur = sel.value;
+    sel.innerHTML = r.prizes.length
+      ? r.prizes.map((pz, i) => `<option value="${pz.id}" ${won.has(pz.id) ? "disabled" : ""}>${i + 1}. ${esc(pz.name)}${won.has(pz.id) ? " — won by " + esc(won.get(pz.id).name) : ""}</option>`).join("")
+      : `<option value="">Add prizes below first</option>`;
+    sel.value = cur && r.prizes.some((x) => x.id === cur && !won.has(x.id)) ? cur : r.next?.id || "";
+    $("rDraw").disabled = !r.next || !p.eligible;
+
+    const last = r.draws.find((d) => d.id === r.current) || null;
+    $("rLast").innerHTML = last ? `<div class="winner">
+        <div class="dim">${esc(last.prizeName)} · drawn ${new Date(last.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })} from ${last.poolSize} entries</div>
+        <div class="wn">${esc(last.name)} <span class="wnum">${esc(last.number)}</span></div>
+        <div class="dim">${esc(last.type || "")}${last.email ? " · " + esc(last.email) : ""}</div>
+        <div class="row" style="margin-top:10px">
+          ${last.status === "won" ? `<button class="btn ghost sm" data-redraw="${last.id}">Winner not here: redraw this prize</button>` : `<span class="pill error">forfeited</span>`}
+          <button class="btn danger sm" data-undo="${last.id}">Undo (mistake)</button>
+          <button class="btn ghost sm" id="rIdle">Back to “next prize” screen</button>
+        </div></div>` : "";
+
+    // Givebutter tickets
+    $("rGbInfo").innerHTML = r.gb.count
+      ? `${r.gb.count.toLocaleString()} tickets loaded ${r.gb.source === "csv" ? "from the CSV export" : "from Givebutter"} ${when(r.gb.pulledAt)}. Sample: ${r.gb.sample.map((t) => `<b style="color:var(--text)">${esc(t.number)}</b> ${esc(t.name)}`).join(", ")}`
+      : "No Givebutter tickets loaded yet.";
+    $("rTypes").innerHTML = r.types.length ? `<thead><tr><th>Ticket type</th><th class="r">Sold</th><th class="r">Raffle entries per ticket</th></tr></thead><tbody>${
+      r.types.map((t) => `<tr><td>${esc(t.type)}</td><td class="r">${t.count}</td><td class="r"><input class="n" type="number" min="0" max="20" value="${t.entries}" data-type="${esc(t.type)}"></td></tr>`).join("")
+    }</tbody>` : "";
+
+    $("rPartInfo").innerHTML = r.participants.count
+      ? `${r.participants.count} runners loaded ${when(r.participants.loadedAt)}, ${r.participants.each} entries each. First few: ${r.participants.sample.map((x) => esc(x.name)).join(", ")}. <a href="#" id="rPartClear" style="color:var(--red)">Remove all</a>`
+      : "No participants loaded yet.";
+
+    $("rManual").innerHTML = r.manual.length ? `<thead><tr><th>Name</th><th class="r">Entries</th><th>Added</th><th></th></tr></thead><tbody>${
+      r.manual.map((m) => `<tr><td>${esc(m.name)}${m.email ? ` <span class="dim">${esc(m.email)}</span>` : ""}</td><td class="r">${m.count}</td><td class="dim">${when(m.at)}</td><td class="r"><button class="btn danger sm" data-rmman="${m.id}">Remove</button></td></tr>`).join("")
+    }</tbody>` : "";
+
+    if (!prizeDraft) { $("rTitle").value = r.title; renderPrizeRows(r.prizes); }
+
+    $("rResults").innerHTML = `<thead><tr><th>Time</th><th>Prize</th><th>Entry</th><th>Name</th><th>Status</th><th></th></tr></thead><tbody>${
+      r.draws.slice().reverse().map((d) => `<tr><td class="dim" style="white-space:nowrap">${new Date(d.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</td><td>${esc(d.prizeName)}</td><td><b>${esc(d.number)}</b></td><td>${esc(d.name)}${d.email ? `<div class="dim">${esc(d.email)}</div>` : ""}</td><td><span class="pill ${d.status === "won" ? "won" : "error"}">${d.status === "won" ? "Winner" : "Not present"}</span></td><td class="r"><button class="btn danger sm" data-undo="${d.id}">Undo</button></td></tr>`).join("") ||
+      `<tr><td colspan="6" class="muted">No draws yet.</td></tr>`
+    }</tbody>`;
+  }
+
+  /* Prize editor */
+  function renderPrizeRows(list) {
+    $("rPrizes").innerHTML = list.map((p, i) => `<div class="prow" data-id="${esc(p.id || "")}">
+      <div class="pn">${i + 1}</div>
+      <input data-f="name" value="${esc(p.name)}" placeholder="Prize name *">
+      <input class="opt" data-f="detail" value="${esc(p.detail || "")}" placeholder="Donated by… (optional)">
+      <input class="opt" data-f="image" value="${esc(p.image || "")}" placeholder="Image URL (optional)">
+      <div style="white-space:nowrap"><button class="btn ghost sm" data-up="${i}" title="Move up">↑</button> <button class="btn danger sm" data-rm="${i}" title="Remove">✕</button></div>
+    </div>`).join("") || `<p class="dim">No prizes yet.</p>`;
+  }
+  const readPrizeRows = () => [...document.querySelectorAll("#rPrizes .prow")].map((row) => ({
+    id: row.dataset.id || undefined,
+    name: row.querySelector("[data-f=name]").value.trim(),
+    detail: row.querySelector("[data-f=detail]").value.trim(),
+    image: row.querySelector("[data-f=image]").value.trim(),
+  }));
+  $("rPrizes").addEventListener("input", () => { prizeDraft = true; });
+  $("rTitle").addEventListener("input", () => { prizeDraft = true; });
+  $("rPrizes").addEventListener("click", (e) => {
+    const rows = readPrizeRows();
+    const up = e.target.closest("[data-up]"), rm = e.target.closest("[data-rm]");
+    if (up) { const i = +up.dataset.up; if (i > 0) [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; }
+    else if (rm) rows.splice(+rm.dataset.rm, 1);
+    else return;
+    prizeDraft = true;
+    renderPrizeRows(rows);
+  });
+  $("rPrizeAdd").onclick = () => { const rows = readPrizeRows(); rows.push({ name: "" }); prizeDraft = true; renderPrizeRows(rows); document.querySelector("#rPrizes .prow:last-child input")?.focus(); };
+  $("rPrizeSave").onclick = async () => {
+    try {
+      await rApi("raffleSavePrizes", { prizes: readPrizeRows().filter((p) => p.name), title: $("rTitle").value }, "rPrizeMsg");
+      prizeDraft = null; renderRaffle();
+      msg("rPrizeMsg", "Prizes saved.");
+    } catch {}
+  };
+
+  /* Draw controls */
+  $("rLive").onchange = (e) => rApi("raffleLive", { live: e.target.checked }, "rDrawMsg").catch(() => {});
+  $("rDraw").onclick = async () => {
+    msg("rDrawMsg", "");
+    if (prizeDraft) return msg("rDrawMsg", "Save your prize changes first.", false);
+    $("rDraw").disabled = true;
+    try {
+      const r = await rApi("raffleDraw", { prizeId: $("rPrizeSel").value }, "rDrawMsg");
+      msg("rDrawMsg", `Drawing on screen now… the reel lands on ${r.drawn.number} in about 8 seconds.`);
+    } catch { renderRaffle(); }
+  };
+  document.getElementById("tab-raffle").addEventListener("click", async (e) => {
+    const rd = e.target.closest("[data-redraw]"), un = e.target.closest("[data-undo]"), rm = e.target.closest("[data-rmman]");
+    if (e.target.id === "rIdle") return rApi("raffleShowIdle", {}, "rDrawMsg").catch(() => {});
+    if (e.target.id === "rPartClear") {
+      e.preventDefault();
+      if (confirm("Remove all race participants from the raffle?")) rApi("raffleLoadParticipants", { clear: true, participants: [], force: $("rPartForce").checked }, "rPartMsg").catch(() => {});
+      return;
+    }
+    if (rd) {
+      if (!confirm("Mark this winner as not present and draw this prize again? Their winning entry stays out of the pool.")) return;
+      try { const r = await rApi("raffleRedraw", { drawId: rd.dataset.redraw }, "rDrawMsg"); msg("rDrawMsg", `Redrawing on screen… lands on ${r.drawn.number}.`); } catch {}
+    }
+    if (un) {
+      if (!confirm("Undo this draw? The entry goes back into the pool and the prize can be drawn again.")) return;
+      rApi("raffleUndo", { drawId: un.dataset.undo }, "rDrawMsg").catch(() => {});
+    }
+    if (rm) rApi("raffleRemoveManual", { id: rm.dataset.rmman }, "rManMsg").catch(() => {});
+  });
+
+  /* Givebutter tickets */
+  $("rPull").onclick = async () => {
+    msg("rTixMsg", "Pulling tickets…");
+    $("rPull").disabled = true;
+    try {
+      const r = await rApi("rafflePullGivebutter", {}, "rTixMsg");
+      msg("rTixMsg", `Loaded ${r.pulled.toLocaleString()} tickets from Givebutter. Check the ticket types below.`);
+    } catch {} finally { $("rPull").disabled = false; }
+  };
+  let tixRows = [];
+  $("rTixFile").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const rows = parseCSV(await file.text());
+    const [hdr, ...data] = rows;
+    // The ticket-number column is the one whose values look like A1042.
+    let iNum = -1, best = 0;
+    hdr.forEach((_, i) => { const hits = data.filter((r) => /^[A-Z]{1,2}\d{3,}$/i.test((r[i] || "").trim())).length; if (hits > best) { best = hits; iNum = i; } });
+    if (iNum < 0) iNum = findCol(hdr, ["ticketnumber", "ticketno", "ticket#", "number", "ticketid", "ticketcode", "code", "id"]);
+    const iName = findCol(hdr, ["name", "fullname", "attendeename", "attendee", "ticketholder", "holder", "guestname"]);
+    const iFirst = findCol(hdr, ["firstname", "attendeefirstname", "first"]);
+    const iLast = findCol(hdr, ["lastname", "attendeelastname", "last"]);
+    const iEmail = hdr.findIndex((h) => normH(h).includes("email"));
+    const iType = findCol(hdr, ["ticket", "ticketname", "tickettype", "tickettitle", "title", "item", "itemname", "description", "type"]);
+    tixRows = iNum < 0 ? [] : data.map((r) => ({
+      number: (r[iNum] || "").trim(),
+      name: iName >= 0 && r[iName] ? r[iName].trim() : [iFirst >= 0 ? r[iFirst] : "", iLast >= 0 ? r[iLast] : ""].join(" ").trim(),
+      email: iEmail >= 0 ? (r[iEmail] || "").trim() : "",
+      type: iType >= 0 && r[iType] ? r[iType].trim() : "Ticket",
+    })).filter((t) => t.number);
+    if (!tixRows.length) { $("rTixPreview").textContent = "Couldn't find a ticket-number column in that file."; return; }
+    $("rTixPreview").innerHTML = `Found ${tixRows.length} tickets (number column: “${esc(hdr[iNum])}”). First: <b>${esc(tixRows[0].number)}</b> ${esc(tixRows[0].name)} · ${esc(tixRows[0].type)}. <button class="btn sm" id="rTixImport">Import these tickets</button>`;
+  };
+  $("rTixPreview").addEventListener("click", async (e) => {
+    if (e.target.id !== "rTixImport") return;
+    try {
+      const r = await rApi("raffleImportTickets", { tickets: tixRows }, "rTixMsg");
+      msg("rTixMsg", `Imported ${r.pulled.toLocaleString()} tickets. They replace any tickets pulled earlier.`);
+      $("rTixPreview").textContent = "";
+    } catch {}
+  });
+  $("rTypes").addEventListener("change", (e) => {
+    const inp = e.target.closest("input[data-type]");
+    if (inp) rApi("raffleSetTypes", { typeEntries: { [inp.dataset.type]: inp.value } }, "rTixMsg").catch(() => {});
+  });
+
+  /* Participants */
+  let partRows = [];
+  $("rPartFile").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const rows = parseCSV(await file.text());
+    if (!rows.length) return;
+    const hdr = rows[0];
+    const iName = findCol(hdr, ["name", "fullname", "participant", "participantname", "runner", "runnername", "registrant", "athlete"]);
+    const iFirst = findCol(hdr, ["firstname", "first", "fname", "givenname"]);
+    const iLast = findCol(hdr, ["lastname", "last", "lname", "surname", "familyname"]);
+    const iEmail = hdr.findIndex((h) => normH(h).includes("email"));
+    const iBib = findCol(hdr, ["bib", "bib#", "bibnumber", "bibno", "racenumber"]);
+    const hasHeader = iName >= 0 || iFirst >= 0;
+    const data = hasHeader ? rows.slice(1) : rows;
+    partRows = data.map((r) => ({
+      name: (hasHeader ? (iName >= 0 && r[iName] ? r[iName] : [iFirst >= 0 ? r[iFirst] : "", iLast >= 0 ? r[iLast] : ""].join(" ")) : r[0] || "").replace(/\s+/g, " ").trim(),
+      email: iEmail >= 0 ? (r[iEmail] || "").trim() : "",
+      bib: iBib >= 0 ? (r[iBib] || "").trim() : "",
+    })).filter((p) => p.name);
+    const seen = new Map();
+    for (const p of partRows) { const k = (p.email || p.name).toLowerCase(); seen.set(k, (seen.get(k) || 0) + 1); }
+    const dup = [...seen].filter(([, n]) => n > 1).map(([k]) => k);
+    $("rPartPreview").innerHTML = partRows.length
+      ? `Found <b style="color:var(--text)">${partRows.length}</b> runners${hasHeader ? "" : " (no header row, so the first column is used as the name)"}: ${partRows.slice(0, 5).map((p) => esc(p.name)).join(", ")}${partRows.length > 5 ? "…" : ""}` +
+        (dup.length ? `<div class="msg err">Listed more than once: ${esc(dup.slice(0, 8).join(", "))}${dup.length > 8 ? "…" : ""}. Each row gets entries, so remove duplicates first if they're the same person.</div>` : "")
+      : "No names found in that file.";
+    $("rPartLoad").disabled = !partRows.length;
+  };
+  $("rPartLoad").onclick = async () => {
+    const each = Number($("rEach").value);
+    if (raffle.participants.count && !confirm(`Replace the ${raffle.participants.count} runners already loaded?`)) return;
+    try {
+      await rApi("raffleLoadParticipants", { participants: partRows, each, force: $("rPartForce").checked }, "rPartMsg");
+      msg("rPartMsg", `Loaded ${partRows.length} runners with ${each} entries each (${(partRows.length * each).toLocaleString()} entries).`);
+      $("rPartPreview").textContent = ""; $("rPartFile").value = ""; $("rPartLoad").disabled = true;
+    } catch {}
+  };
+
+  /* Manual entries */
+  $("rManForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target));
+    try { await rApi("raffleAddManual", fd, "rManMsg"); msg("rManMsg", `Added ${fd.count} entr${fd.count == 1 ? "y" : "ies"} for ${fd.name}.`); e.target.reset(); } catch {}
+  };
+
+  /* Downloads + reset */
+  const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  function download(name, rows) {
+    const blob = new Blob([rows.map((r) => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  $("rResultsCsv").onclick = () => download("raffle-results.csv", [["Time", "Prize", "Entry #", "Name", "Email", "Source", "Status"],
+    ...raffle.draws.map((d) => [new Date(d.at).toLocaleString(), d.prizeName, d.number, d.name, d.email, d.type || d.source, d.status === "won" ? "Winner" : "Not present"])]);
+  $("rEntriesCsv").onclick = async () => {
+    const { entries } = await api("raffleEntries");
+    download("raffle-entries.csv", [["Entry #", "Name", "Email", "Source", "Drawn"], ...entries.map((e) => [e.number, e.name, e.email, e.type, e.drawn])]);
+  };
+  const reset = (everything) => rApi("raffleReset", { confirm: $("rResetConfirm").value.trim(), everything }, "rResetMsg").then(() => msg("rResetMsg", everything ? "Raffle cleared." : "All draws cleared.")).catch(() => {});
+  $("rResetDraws").onclick = () => reset(false);
+  $("rResetAll").onclick = () => reset(true);
+
+  $("tabs").addEventListener("click", (e) => { if (e.target.closest("[data-tab=raffle]")) loadRaffle(); });
+  // Keep the raffle tab fresh while it's open (other staff may be drawing too).
+  setInterval(() => {
+    if (!password || $("tab-raffle").hidden || document.hidden) return;
+    const typing = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+    if (!typing && !prizeDraft) loadRaffle();
+  }, 8000);
 
   /* ---------- Start ---------- */
   async function start() {

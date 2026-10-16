@@ -6,6 +6,7 @@ import { money, highBid, nextMinimum, publicItem, summarize } from "../lib/aucti
 import { listCampaigns, givebutterSummary } from "../lib/givebutter.mjs";
 import { processWebhook, logDelivery, readLog } from "../lib/webhook.mjs";
 import { syncIfStale, readSyncMeta } from "../lib/gbsync.mjs";
+import * as R from "../lib/raffle.mjs";
 
 function checkPassword(req) {
   const expected = process.env.ADMIN_PASSWORD;
@@ -200,6 +201,134 @@ const actions = {
     return res;
   },
 
+  /* ---------------- Raffle ---------------- */
+  async raffleState({ s }) {
+    return raffleView(await R.getRaffle(s));
+  },
+
+  async raffleEntries({ s }) {
+    const doc = await R.getRaffle(s);
+    const used = new Map(doc.draws.map((d) => [d.number, d]));
+    return { entries: R.buildEntries(doc).map((e) => ({ ...e, drawn: used.get(e.number)?.status || "" })) };
+  },
+
+  async rafflePullGivebutter({ s }) {
+    const settings = await getSettings(s);
+    const { tickets, sample } = await R.pullGivebutterTickets(settings.campaignId);
+    if (!tickets.length) throw new HttpError(404, "Givebutter returned no tickets for this API key. If tickets were just sold, try again in a minute, or upload the Tickets export CSV instead.");
+    const doc = await R.updateRaffle(s, (d) => setGbTickets(d, tickets, "api"));
+    return { ...raffleView(doc), pulled: tickets.length, sample };
+  },
+
+  async raffleImportTickets({ s, body }) {
+    const rows = Array.isArray(body.tickets) ? body.tickets.slice(0, 20000) : [];
+    const tickets = R.dedupe(rows.map((r) => R.mapGbTicket({ ...r, number: str(r.number, 40), name: str(r.name, 120), email: str(r.email, 200), title: str(r.type, 120) })).filter((t) => t.number));
+    if (!tickets.length) throw new HttpError(400, "No ticket numbers found in that file.");
+    const doc = await R.updateRaffle(s, (d) => setGbTickets(d, tickets, "csv"));
+    return { ...raffleView(doc), pulled: tickets.length };
+  },
+
+  async raffleSetTypes({ s, body }) {
+    const doc = await R.updateRaffle(s, (d) => {
+      for (const [type, n] of Object.entries(body.typeEntries || {})) if (type in d.typeEntries) d.typeEntries[type] = Math.max(0, Math.min(20, Math.floor(Number(n) || 0)));
+    });
+    return raffleView(doc);
+  },
+
+  async raffleLoadParticipants({ s, body }) {
+    const rows = Array.isArray(body.participants) ? body.participants.slice(0, 10000) : [];
+    const list = rows.map((r) => ({ name: str(r.name, 120), email: str(r.email, 200), bib: str(r.bib, 20) })).filter((p) => p.name);
+    if (!list.length && !body.clear) throw new HttpError(400, "No names found in that file.");
+    const each = Math.max(0, Math.min(20, Math.floor(Number(body.each ?? 2))));
+    const doc = await R.updateRaffle(s, (d) => {
+      if (d.draws.some((x) => x.source === "participant") && !body.force)
+        throw new HttpError(409, "A race participant has already been drawn. Reloading would renumber their entries — tick “Reload anyway” if you're sure.");
+      d.participants = body.clear ? [] : list;
+      d.participantsEach = each;
+      d.participantsLoadedAt = new Date().toISOString();
+    });
+    return raffleView(doc);
+  },
+
+  async raffleAddManual({ s, body }) {
+    const name = str(body.name, 120);
+    const count = Math.floor(Number(body.count) || 0);
+    if (!name) throw new HttpError(400, "Enter a name.");
+    if (count < 1 || count > 500) throw new HttpError(400, "Enter how many entries (1–500).");
+    const doc = await R.updateRaffle(s, (d) => { d.manual.push({ id: randomUUID(), name, email: str(body.email, 200), count, at: new Date().toISOString() }); });
+    return raffleView(doc);
+  },
+
+  async raffleRemoveManual({ s, body }) {
+    const doc = await R.updateRaffle(s, (d) => {
+      if (d.draws.some((x) => x.source === "manual")) throw new HttpError(409, "Entries added by hand can't be removed after one of them has been drawn (it would renumber them).");
+      d.manual = d.manual.filter((m) => m.id !== body.id);
+    });
+    return raffleView(doc);
+  },
+
+  async raffleSavePrizes({ s, body }) {
+    const input = Array.isArray(body.prizes) ? body.prizes.slice(0, 200) : [];
+    const doc = await R.updateRaffle(s, (d) => {
+      const byId = new Map(d.prizes.map((p) => [p.id, p]));
+      const next = input.map((p) => ({ id: byId.has(p.id) ? p.id : randomUUID(), name: str(p.name, 160), detail: str(p.detail, 300), image: str(p.image, 1000) })).filter((p) => p.name);
+      const keep = new Set(next.map((p) => p.id));
+      const orphan = d.draws.find((x) => x.status === "won" && !keep.has(x.prizeId));
+      if (orphan) throw new HttpError(409, `“${orphan.prizeName}” already has a winner, so it can't be removed. Undo that draw first.`);
+      d.prizes = next;
+      if ("title" in body) d.title = str(body.title, 120) || R.EMPTY.title;
+    });
+    return raffleView(doc);
+  },
+
+  async raffleLive({ s, body }) {
+    const doc = await R.updateRaffle(s, (d) => { d.live = !!body.live; if (!d.live) d.current = null; });
+    return raffleView(doc);
+  },
+
+  async raffleDraw({ s, body }) {
+    let drawn;
+    const doc = await R.updateRaffle(s, (d) => { drawn = R.draw(d, str(body.prizeId, 60) || null); d.live = true; });
+    return { ...raffleView(doc), drawn };
+  },
+
+  // Winner isn't here: their entry stays out of the pool and the same prize is drawn again.
+  async raffleRedraw({ s, body }) {
+    let drawn;
+    const doc = await R.updateRaffle(s, (d) => {
+      const prev = d.draws.find((x) => x.id === body.drawId);
+      if (!prev || prev.status !== "won") throw new HttpError(404, "That draw isn't a current winner.");
+      prev.status = "forfeit";
+      prev.forfeitAt = new Date().toISOString();
+      drawn = R.draw(d, prev.prizeId);
+      d.live = true;
+    });
+    return { ...raffleView(doc), drawn };
+  },
+
+  // Mistake (e.g. wrong prize selected): delete the draw and return the entry to the pool.
+  async raffleUndo({ s, body }) {
+    const doc = await R.updateRaffle(s, (d) => {
+      d.draws = d.draws.filter((x) => x.id !== body.drawId);
+      if (d.current === body.drawId) d.current = null;
+    });
+    return raffleView(doc);
+  },
+
+  async raffleShowIdle({ s }) {
+    const doc = await R.updateRaffle(s, (d) => { d.current = null; });
+    return raffleView(doc);
+  },
+
+  async raffleReset({ s, body }) {
+    if (body.confirm !== "RESET") throw new HttpError(400, "Type RESET to confirm.");
+    const doc = await R.updateRaffle(s, (d) => {
+      d.draws = []; d.current = null; d.live = false;
+      if (body.everything) { d.gbTickets = []; d.typeEntries = {}; d.gbPulledAt = null; d.gbSource = null; d.participants = []; d.participantsLoadedAt = null; d.manual = []; }
+    });
+    return raffleView(doc);
+  },
+
   async listCampaigns() {
     return { campaigns: await listCampaigns() };
   },
@@ -212,6 +341,34 @@ const actions = {
     return { givebutter: data };
   },
 };
+
+function setGbTickets(d, tickets, source) {
+  d.gbTickets = tickets;
+  d.gbPulledAt = new Date().toISOString();
+  d.gbSource = source;
+  // Remember staff choices per ticket type; new types get a sensible default.
+  for (const t of tickets) if (!(t.type in d.typeEntries)) d.typeEntries[t.type] = R.defaultEntriesFor(t.type);
+}
+
+function raffleView(doc) {
+  const types = {};
+  for (const t of doc.gbTickets) types[t.type] = (types[t.type] || 0) + 1;
+  return {
+    raffle: {
+      title: doc.title,
+      live: doc.live,
+      current: doc.current,
+      gb: { count: doc.gbTickets.length, pulledAt: doc.gbPulledAt, source: doc.gbSource, sample: doc.gbTickets.slice(0, 3) },
+      types: Object.entries(types).map(([type, count]) => ({ type, count, entries: doc.typeEntries[type] ?? 0 })).sort((a, b) => b.count - a.count),
+      participants: { count: doc.participants.length, each: doc.participantsEach, loadedAt: doc.participantsLoadedAt, sample: doc.participants.slice(0, 5) },
+      manual: doc.manual,
+      prizes: doc.prizes,
+      next: R.nextPrize(doc),
+      draws: doc.draws,
+      pool: R.poolSummary(doc),
+    },
+  };
+}
 
 export default async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);

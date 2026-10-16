@@ -36,6 +36,13 @@
       const res = await fetch("/api/state", { cache: "no-store" });
       if (!res.ok) throw new Error(res.status);
       const next = await res.json();
+      // Staff turned on the raffle: switch this screen over (it comes back when the raffle ends).
+      if (next.raffleLive && !params.has("noraffle")) {
+        const q = new URLSearchParams(location.search);
+        q.set("from", "display");
+        location.replace("/raffle?" + q.toString());
+        return;
+      }
       clockOffset = Date.parse(next.serverTime) - Date.now();
       detectNewBids(next);
       data = next;

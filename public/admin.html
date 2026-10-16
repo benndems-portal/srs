@@ -75,6 +75,18 @@
     .stat { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; }
     .stat b { display:block; font-size: 22px; }
     .stat span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+    .drawbox { border-color: rgba(242,193,78,.45); }
+    .bigbtn { font-size: 20px; padding: 16px 28px; }
+    .winner { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; margin-top: 14px; }
+    .winner .wn { font-size: 26px; font-weight: 800; }
+    .winner .wnum { color: var(--gold); font-weight: 800; }
+    .switch { display:flex; gap:8px; align-items:center; font-weight:600; color: var(--text); font-size: 15px; }
+    .prow { display:grid; grid-template-columns: 28px 1.3fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .prow .pn { color: var(--dim); font-weight: 700; text-align: center; }
+    @media (max-width: 700px) { .prow { grid-template-columns: 24px 1fr auto; } .prow .opt { grid-column: 2 / -1; } }
+    .steps { counter-reset: st; }
+    .steps > .card > h2::before { counter-increment: st; content: counter(st) ". "; color: var(--gold); }
+    td input.n { width: 70px; padding: 6px 8px; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -99,6 +111,7 @@
       <nav class="tabs" id="tabs">
         <button data-tab="bids" class="on">Record bids</button>
         <button data-tab="items">Items</button>
+        <button data-tab="raffle">Raffle</button>
         <button data-tab="settings">Settings</button>
       </nav>
       <a class="btn ghost sm" href="/" target="_blank" rel="noopener">Open display ↗</a>
@@ -160,6 +173,91 @@
         <div class="card">
           <h2>All items</h2>
           <div class="tablewrap"><table id="itemTable"></table></div>
+        </div>
+      </section>
+
+      <!-- Raffle -->
+      <section id="tab-raffle" hidden>
+        <div class="stats" id="rStats"></div>
+
+        <div class="card drawbox">
+          <h2>Run the drawing</h2>
+          <div class="row" style="justify-content:space-between">
+            <label class="switch"><input type="checkbox" id="rLive"> Show the raffle on all display screens</label>
+            <a class="btn ghost sm" href="/raffle" target="_blank" rel="noopener">Open raffle screen ↗</a>
+          </div>
+          <p class="dim" style="margin:6px 0 12px">When this is on, every screen showing the auction switches to the raffle. Turn it off to go back to the auction.</p>
+          <div class="row">
+            <div style="flex:1;min-width:220px"><label>Prize to draw</label><select id="rPrizeSel"></select></div>
+            <div><label>&nbsp;</label><button class="btn bigbtn" id="rDraw">🎟 Draw winner</button></div>
+          </div>
+          <div id="rDrawMsg"></div>
+          <div id="rLast"></div>
+        </div>
+
+        <div class="steps">
+          <div class="card">
+            <h2>Givebutter raffle tickets</h2>
+            <p class="muted" style="margin-top:0">Pull every ticket sold on Givebutter. Each ticket has its own number (for example <b>A1042</b>). Then choose which ticket types count as raffle entries. Race registrations or event admission sold as tickets can be set to 0.</p>
+            <div class="row">
+              <button class="btn" id="rPull">Pull tickets from Givebutter</button>
+              <span class="dim">or upload the Tickets export (Givebutter › Tickets › filter to this campaign › Export):</span>
+              <input type="file" id="rTixFile" accept=".csv,text/csv" style="flex:1;min-width:200px">
+            </div>
+            <div id="rTixPreview" class="dim" style="margin-top:8px"></div>
+            <div id="rTixMsg"></div>
+            <div id="rGbInfo" class="dim" style="margin-top:10px"></div>
+            <div class="tablewrap" style="margin-top:10px"><table id="rTypes"></table></div>
+          </div>
+
+          <div class="card">
+            <h2>Race participants</h2>
+            <p class="muted" style="margin-top:0">Upload a CSV of runners. Each runner gets free entries numbered <b>R0001</b>, <b>R0002</b>, and so on. Recognized columns: Name (or First name + Last name), Email, Bib. A file with only names and no header row also works.</p>
+            <div class="row">
+              <input type="file" id="rPartFile" accept=".csv,text/csv,.txt" style="flex:1;min-width:200px">
+              <div><label style="margin:0">Entries each</label><input id="rEach" type="number" min="0" max="20" value="2" style="width:90px"></div>
+              <button class="btn" id="rPartLoad" disabled>Load participants</button>
+            </div>
+            <label class="dim" style="display:flex;gap:6px;align-items:center;margin-top:8px;font-weight:500"><input type="checkbox" id="rPartForce"> Reload anyway, even if a participant has already been drawn</label>
+            <div id="rPartPreview" class="dim" style="margin-top:8px"></div>
+            <div id="rPartMsg"></div>
+            <div id="rPartInfo" class="dim" style="margin-top:8px"></div>
+          </div>
+
+          <div class="card">
+            <h2>Extra entries <span class="dim" style="font-weight:500">(optional)</span></h2>
+            <p class="muted" style="margin-top:0">For tickets sold in cash at the event, or anyone who should get entries by hand. They're numbered <b>M0001</b>, <b>M0002</b>, and so on.</p>
+            <form id="rManForm" class="row">
+              <input name="name" placeholder="Name" style="flex:2;min-width:160px" required>
+              <input name="email" placeholder="Email (optional)" style="flex:2;min-width:160px">
+              <input name="count" type="number" min="1" max="500" value="1" style="width:90px" required>
+              <button class="btn">Add entries</button>
+            </form>
+            <div id="rManMsg"></div>
+            <div class="tablewrap"><table id="rManual"></table></div>
+          </div>
+
+          <div class="card">
+            <h2>Prizes</h2>
+            <p class="muted" style="margin-top:0">Prizes are drawn in this order (you can also pick any prize when drawing). A winning entry leaves the pool, but the same person's other entries stay in.</p>
+            <div><label>Screen title</label><input id="rTitle" placeholder="Raffle Drawing" style="max-width:420px"></div>
+            <div id="rPrizes" style="margin-top:12px"></div>
+            <div class="row"><button class="btn ghost" type="button" id="rPrizeAdd">+ Add prize</button><button class="btn" type="button" id="rPrizeSave">Save prizes</button></div>
+            <div id="rPrizeMsg"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Results</h2>
+          <div class="row" style="margin-bottom:10px"><button class="btn ghost sm" id="rResultsCsv">Download results CSV</button><button class="btn ghost sm" id="rEntriesCsv">Download all entries CSV</button></div>
+          <div class="tablewrap"><table id="rResults"></table></div>
+        </div>
+
+        <div class="card" style="border-color:rgba(255,90,106,.35)">
+          <h2 style="color:var(--red)">Reset raffle</h2>
+          <p class="muted" style="margin-top:0">Clear every draw (for a practice run), or clear everything including tickets and participants. Type RESET to confirm.</p>
+          <div class="row"><input id="rResetConfirm" placeholder="RESET" style="max-width:160px"><button class="btn danger" id="rResetDraws">Clear draws</button><button class="btn danger" id="rResetAll">Clear everything</button></div>
+          <div id="rResetMsg"></div>
         </div>
       </section>
 

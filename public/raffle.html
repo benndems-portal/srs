@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raffle Drawing — Live</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/raffle.css">
+</head>
+<body class="display raffle">
+  <div class="r-app">
+    <header class="top">
+      <div class="brand">
+        <div class="eyebrow"><span class="live-dot" id="liveDot"></span><span>Live raffle drawing</span></div>
+        <h1 id="title">Raffle Drawing</h1>
+      </div>
+      <div class="r-count">
+        <div class="clock-label">In the drawing</div>
+        <div class="r-count-n" id="entries">—</div>
+        <div class="clock-sub" id="people"></div>
+      </div>
+    </header>
+
+    <main class="r-body">
+      <section class="r-stage" id="stage">
+        <!-- Waiting for the next draw -->
+        <div class="r-idle" id="idle">
+          <div class="r-kicker">Up next</div>
+          <div class="r-idle-main">
+            <div class="r-idle-img" id="idleImg" hidden></div>
+            <div>
+              <h2 class="r-prize-big" id="idlePrize">Get ready!</h2>
+              <p class="r-prize-detail" id="idleDetail"></p>
+            </div>
+          </div>
+          <div class="r-idle-foot">Check your ticket numbers. A winner is drawn in a moment.</div>
+        </div>
+
+        <!-- Drawing / winner -->
+        <div class="r-draw" id="draw" hidden>
+          <div class="r-kicker" id="drawKicker">Drawing for</div>
+          <h2 class="r-prize-mid" id="drawPrize"></h2>
+          <div class="reel" id="reel">
+            <div class="reel-strip" id="strip"></div>
+            <div class="reel-window" aria-hidden="true"></div>
+          </div>
+          <div class="r-winner" id="winner" hidden>
+            <div class="r-winner-lbl">🎉 Winner</div>
+            <div class="r-winner-name" id="winnerName"></div>
+            <div class="r-winner-sub" id="winnerSub"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel r-prizes">
+        <h3>Prizes</h3>
+        <ol id="prizeList"></ol>
+      </aside>
+    </main>
+
+    <footer class="foot">
+      <div class="dim-note" id="note"></div>
+      <div class="foot-right">
+        <button class="fs-btn" id="soundBtn" title="Sound (S)">🔊 Sound on</button>
+        <button class="fs-btn" id="fsBtn" title="Full screen (F)">⤢ Full screen</button>
+      </div>
+    </footer>
+  </div>
+  <canvas id="confetti"></canvas>
+  <script src="/raffle.js"></script>
+</body>
+</html>

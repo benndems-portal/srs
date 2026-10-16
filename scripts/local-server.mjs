@@ -19,6 +19,18 @@ if (process.env.MOCK_GIVEBUTTER === "1") {
     let body;
     if (u.pathname === "/v1/campaigns") body = { data: [camp], meta: { current_page: 1, last_page: 1 } };
     else if (u.pathname.startsWith("/v1/campaigns/")) body = { data: camp };
+    else if (u.pathname === "/v1/tickets") {
+      // 230 sold tickets across three types, 100 per page.
+      const first = ["Sarah", "Leslie", "Marcus", "Dana", "Priya", "Tom", "Keisha", "Luis", "Grace", "Owen", "Mei", "Andre"];
+      const last = ["Ramsey", "Hughes", "Hill", "Lopez", "Patel", "Nguyen", "Brooks", "Garcia", "Kim", "Walsh", "Chen", "Ford"];
+      const all = Array.from({ length: 230 }, (_, i) => {
+        const f = first[i % 12], l = last[(i * 7) % 12];
+        const title = i % 10 === 9 ? "5K Registration" : i % 3 ? "Raffle Ticket" : "Raffle Ticket (Bundle of 5)";
+        return { id: "tk_" + (9000 + i), id_suffix: "A" + (1001 + i), transaction_id: "tr_" + Math.floor(i / 3), name: f + " " + l, first_name: f, last_name: l, email: `${f}.${l}${i % 5}@example.com`.toLowerCase(), title, description: "", price: 10, created_at: new Date().toISOString() };
+      });
+      const page = Number(u.searchParams.get("page") || 1), per = 100, last_page = Math.ceil(all.length / per);
+      body = { data: all.slice((page - 1) * per, page * per), meta: { current_page: page, last_page, per_page: per, total: all.length } };
+    }
     else body = { data: [
       { campaign_id: 4242, first_name: "Dana", last_name: "Lopez", amount: 250, status: "succeeded", transacted_at: new Date(Date.now() - 120000).toISOString(), line_items: [{ description: "Gala ticket" }] },
       { campaign_id: 4242, first_name: "Marcus", last_name: "Hill", amount: 1000, status: "succeeded", transacted_at: new Date(Date.now() - 900000).toISOString(), line_items: [{ description: "Paddle raise" }] },
@@ -45,6 +57,7 @@ if (process.env.MOCK_GB_FEED) {
 const { default: state } = await import("../netlify/functions/state.mjs");
 const { default: admin } = await import("../netlify/functions/admin.mjs");
 const { default: webhook } = await import("../netlify/functions/webhook.mjs");
+const { default: raffle } = await import("../netlify/functions/raffle.mjs");
 const PUBLIC = new URL("../public/", import.meta.url).pathname;
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" };
 const PORT = Number(process.env.PORT || 8888);
@@ -63,7 +76,7 @@ http.createServer(async (req, res) => {
     if (b.ended) { it.ended = true; it.winning_bid = it.last_bid; it.winning_bids = it.last_bid ? [it.last_bid] : []; }
     res.writeHead(200); return res.end("ok");
   }
-  const fn = url.pathname === "/api/state" ? state : url.pathname === "/api/admin" ? admin : url.pathname === "/api/webhook" ? webhook : null;
+  const fn = url.pathname === "/api/state" ? state : url.pathname === "/api/admin" ? admin : url.pathname === "/api/webhook" ? webhook : url.pathname === "/api/raffle" ? raffle : null;
   if (fn) {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -71,7 +84,7 @@ http.createServer(async (req, res) => {
     res.writeHead(r.status, Object.fromEntries(r.headers));
     return res.end(Buffer.from(await r.arrayBuffer()));
   }
-  let p = url.pathname === "/" ? "/index.html" : url.pathname === "/admin" ? "/admin.html" : url.pathname;
+  let p = url.pathname === "/" ? "/index.html" : url.pathname === "/admin" ? "/admin.html" : url.pathname === "/raffle" ? "/raffle.html" : url.pathname;
   const file = normalize(join(PUBLIC, p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   try {
