@@ -1,0 +1,26 @@
+{
+  "name": "srs-card-terminal",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@stripe/stripe-terminal-react-native": "0.0.1-beta.33",
+    "expo": "~56.0.23",
+    "expo-keep-awake": "~56.0.3",
+    "expo-location": "~56.0.26",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "private": true
+}

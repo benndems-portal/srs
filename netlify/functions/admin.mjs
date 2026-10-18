@@ -3,11 +3,15 @@
 import { timingSafeEqual, randomUUID } from "node:crypto";
 import { store, getSettings, listItems, updateJSON, HttpError, json, DEFAULT_SETTINGS } from "../lib/store.mjs";
 import { money, highBid, nextMinimum, publicItem, summarize } from "../lib/auction.mjs";
-import { listCampaigns, givebutterSummary } from "../lib/givebutter.mjs";
+import { listCampaigns, givebutterSummary, gbWrite } from "../lib/givebutter.mjs";
 import { processWebhook, logDelivery, readLog } from "../lib/webhook.mjs";
 import { syncIfStale, readSyncMeta } from "../lib/gbsync.mjs";
 import * as R from "../lib/raffle.mjs";
 import { smsConfigured, normalizePhone, prettyPhone, sendSms, renderTemplate } from "../lib/sms.mjs";
+import { saleDraft, completeSale, sendSaleText, applySmsResult, textSale, recordSaleInGb } from "../lib/sales.mjs";
+import * as S from "../lib/stripe.mjs";
+import { settleRequest, cancelRequest } from "../lib/cards.mjs";
+import { pullContactsPage, getLookup } from "../lib/lookup.mjs";
 
 function checkPassword(req) {
   const expected = process.env.ADMIN_PASSWORD;
@@ -363,40 +367,149 @@ const actions = {
     return raffleView(doc);
   },
 
+  // Cash, check, or a card already charged some other way (e.g. Tap to Pay in the Stripe app).
   async raffleSell({ s, body }) {
-    const name = str(body.name, 120);
-    const count = Math.floor(Number(body.count) || 0);
-    if (!name) throw new HttpError(400, "Enter the buyer's name.");
-    if (count < 1 || count > 500) throw new HttpError(400, "How many tickets? (1–500)");
-    const rawPhone = str(body.phone, 40);
-    const phone = normalizePhone(rawPhone);
-    if (rawPhone && !phone) throw new HttpError(400, "That phone number doesn't look right. Use 10 digits, e.g. 555-123-4567.");
-    const payment = body.payment === "card" ? "card" : "cash";
-    let sale;
-    let doc = await R.updateRaffle(s, (d) => {
-      const amount = num(body.amount) ?? R.salePrice(d.salesConfig, count);
-      sale = R.createSale(d, { name, phone, email: str(body.email, 200), count, payment, amount });
-    });
-    if (phone) doc = await textSale(s, doc, sale.id);
-    sale = doc.sales.find((x) => x.id === sale.id);
+    const cur = await R.getRaffle(s);
+    const draft = saleDraft(body, cur.salesConfig);
+    const { doc, sale } = await completeSale(s, draft);
     return { ...raffleView(doc), sale: saleView(sale) };
+  },
+
+  /* ---------------- Card payments on the iPhone terminal (Stripe Reader M2) ---------------- */
+  async cardStart({ s, body }) {
+    const doc = await R.getRaffle(s);
+    const draft = { ...saleDraft({ ...body, payment: "card" }, doc.salesConfig), payment: "card" };
+    const req = await S.createCardRequest(s, { draft, title: doc.title, terminal: S.cleanTerminalId(body.terminal) });
+    return { request: S.publicRequest(req), terminals: S.liveTerminals(await S.getQueue(s)) };
+  },
+
+  async cardStatus({ s, body }) {
+    const id = String(body.id || "");
+    let r = (await S.getQueue(s)).requests.find((x) => x.id === id);
+    if (!r) throw new HttpError(404, "That card payment wasn't found.");
+    // While a phone has the charge, ask Stripe directly now and then, in case the phone lost signal after the tap.
+    const since = Date.now() - Date.parse(r.claimedAt || r.createdAt);
+    if (r.status === "processing" && since > 4000 && body.check) r = await settleRequest(s, id);
+    let sale = null;
+    if (r.status === "succeeded") {
+      const doc = await R.getRaffle(s);
+      sale = doc.sales.find((x) => x.id === (r.saleId || r.id)) || null;
+    }
+    const q = await S.getQueue(s);
+    return { request: S.publicRequest(q.requests.find((x) => x.id === id) || r), sale: sale && saleView(sale), terminals: S.liveTerminals(q) };
+  },
+
+  async cardCancel({ s, body }) {
+    const r = await cancelRequest(s, String(body.id || ""), "laptop");
+    let sale = null;
+    if (r.status === "succeeded") sale = (await R.getRaffle(s)).sales.find((x) => x.id === (r.saleId || r.id)) || null;
+    return { request: S.publicRequest(r), sale: sale && saleView(sale) };
+  },
+
+  async cardTerminals({ s }) {
+    return { terminals: S.liveTerminals(await S.getQueue(s)), configured: S.stripeConfigured(), mode: S.stripeMode() };
+  },
+
+  /* ---------------- Buyer lookup (Givebutter contacts) ---------------- */
+  async lookupPull({ s, body }) {
+    return pullContactsPage(s, Math.max(1, Math.floor(Number(body.fromPage) || 1)));
+  },
+
+  async lookupIndex({ s }) {
+    return getLookup(s);
+  },
+
+  async raffleSaveNumbering({ s, body }) {
+    const c = body.numbering || {};
+    const doc = await R.updateRaffle(s, (d) => {
+      const cur = R.numbering(d);
+      const prefix = str(c.prefix ?? cur.prefix, 8).replace(/\D/g, "");
+      if (!prefix) throw new HttpError(400, "The prefix must be digits, e.g. 2026.");
+      const block = (v, dflt) => { const n = Math.floor(Number(v)); if (!(n >= 0 && n <= 9999)) throw new HttpError(400, "Block starts must be between 0 and 9999."); return n; };
+      const next = { prefix, saleStart: block(c.saleStart ?? cur.saleStart), participantStart: block(c.participantStart ?? cur.participantStart), manualStart: block(c.manualStart ?? cur.manualStart) };
+      if ((d.sales || []).length && (next.prefix !== cur.prefix || next.saleStart !== cur.saleStart)) throw new HttpError(409, "Tickets have already been sold, so the prefix and sold-ticket start can't change now (sold numbers never change). Reset sales first.");
+      d.numbering = next;
+    });
+    return raffleView(doc);
+  },
+
+  async raffleSaveGbRecord({ s, body }) {
+    const doc = await R.updateRaffle(s, (d) => {
+      const cur = { ...R.EMPTY.gbRecord, ...(d.gbRecord || {}) };
+      const c = body.gbRecord || {};
+      d.gbRecord = {
+        ...cur,
+        enabled: "enabled" in c ? !!c.enabled : cur.enabled,
+        auto: "auto" in c ? !!c.auto : cur.auto,
+        recordCard: "recordCard" in c ? !!c.recordCard : cur.recordCard,
+        campaignCode: "campaignCode" in c ? str(c.campaignCode, 60) : cur.campaignCode,
+        timezone: "timezone" in c ? str(c.timezone, 60) || cur.timezone : cur.timezone,
+        fallbackEmail: "fallbackEmail" in c ? str(c.fallbackEmail, 200) : cur.fallbackEmail || "",
+      };
+    });
+    return raffleView(doc);
+  },
+
+  // Record any sales that aren't in Givebutter yet (e.g. after a network hiccup), 10 at a time.
+  async raffleRecordPending({ s }) {
+    let doc = await R.getRaffle(s);
+    const todo = doc.sales.filter((x) => R.shouldRecord(doc, x));
+    const batch = todo.slice(0, 10);
+    const results = await Promise.all(batch.map((x) => recordSaleInGb(doc, x)));
+    doc = await R.updateRaffle(s, (d) => { batch.forEach((x, i) => { d.sales.find((y) => y.id === x.id).gb = results[i]; }); });
+    return { recorded: results.filter((r) => r.status === "recorded").length, failed: results.filter((r) => r.status !== "recorded").map((r, i) => ({ name: batch[i].name, error: r.error })), remaining: todo.length - batch.length, ...raffleView(doc) };
+  },
+
+  // Creates one real $1.00 cash transaction marked TEST so you can see where sales land in Givebutter.
+  async raffleTestGbRecord({ s }) {
+    const doc = await R.getRaffle(s);
+    const fake = { id: "test-" + randomUUID().slice(0, 8), name: "Raffle Test", amount: 1, payment: "cash", at: new Date().toISOString(), numbers: ["20269999"], count: 1, email: "", phone: "" };
+    const body = R.gbTransactionBody(doc, fake);
+    body.internal_note = "TEST from the raffle Sell page. Delete this transaction. " + body.internal_note;
+    const tx = await gbWrite("POST", "/transactions", body);
+    return { ok: true, id: tx.id ?? tx.tid ?? null, campaign: body.campaign_code || "(no campaign)", sent: body };
   },
 
   async raffleSales({ s }) {
     const doc = await R.getRaffle(s);
-    return { sales: doc.sales.slice().reverse().map(saleView), summary: R.salesSummary(doc), salesConfig: doc.salesConfig, title: doc.title, smsConfigured: smsConfigured() };
+    const gbRecord = { ...R.EMPTY.gbRecord, ...(doc.gbRecord || {}) };
+    const q = await S.getQueue(s);
+    return { sales: doc.sales.slice().reverse().map(saleView), summary: R.salesSummary(doc), salesConfig: doc.salesConfig, title: doc.title, smsConfigured: smsConfigured(), gbRecording: gbRecord.enabled && !!process.env.GIVEBUTTER_API_KEY, gbAuto: gbRecord.auto, numbering: R.numbering(doc), stripe: { configured: S.stripeConfigured(), mode: S.stripeMode() }, terminals: S.liveTerminals(q) };
   },
 
   async raffleVoidSale({ s, body }) {
-    const doc = await R.updateRaffle(s, (d) => {
+    let doc = await R.updateRaffle(s, (d) => {
       const sale = d.sales.find((x) => x.id === body.id);
       if (!sale) throw new HttpError(404, "Sale not found.");
       const drawn = d.draws.find((x) => sale.numbers.includes(x.number));
       if (drawn) throw new HttpError(409, `Ticket ${drawn.number} from this sale has already been drawn, so the sale can't be voided. Undo that draw first.`);
+      if (body.restore && sale.stripe?.refunded) throw new HttpError(409, "This card sale was refunded, so it can't be restored. Make a new sale instead.");
       sale.voided = !body.restore;
       sale.voidedAt = sale.voided ? new Date().toISOString() : null;
     });
-    return raffleView(doc);
+    let sale = doc.sales.find((x) => x.id === body.id);
+    // Card sales taken through Stripe can be refunded right here.
+    let refund = null;
+    if (sale.voided && body.refund && sale.stripe?.pi && !sale.stripe.refunded) {
+      try {
+        const rf = await S.refundPi(sale.stripe.pi);
+        refund = { ok: true, id: rf.id };
+        doc = await R.updateRaffle(s, (d) => { const x = d.sales.find((y) => y.id === sale.id); x.stripe = { ...x.stripe, refunded: rf.id, refundedAt: new Date().toISOString() }; });
+        sale = doc.sales.find((x) => x.id === body.id);
+      } catch (e) { refund = { ok: false, error: e.message }; }
+    }
+    // Givebutter's API can't delete or change the amount of a transaction, so flag it in the note.
+    let gbNote = null;
+    if (sale.gb?.status === "recorded" && sale.gb.id) {
+      const base = R.gbTransactionBody(doc, sale).internal_note;
+      try {
+        await gbWrite("PUT", `/transactions/${encodeURIComponent(sale.gb.id)}`, { internal_note: sale.voided ? `VOIDED ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })}: refund or delete this transaction in Givebutter. ${base}` : base });
+        gbNote = sale.voided ? "flagged" : "restored";
+      } catch (e) { gbNote = "error: " + e.message; }
+      const doc2 = await R.updateRaffle(s, (d) => { const x = d.sales.find((y) => y.id === sale.id); x.gb = { ...x.gb, voidFlag: gbNote }; });
+      return { ...raffleView(doc2), gbNote, refund };
+    }
+    return { ...raffleView(doc), gbNote, refund };
   },
 
   async raffleResendSale({ s, body }) {
@@ -416,7 +529,7 @@ const actions = {
     const to = normalizePhone(body.phone);
     if (!to) throw new HttpError(400, "Enter a phone number to send the test to.");
     const doc = await R.getRaffle(s);
-    const text = renderTemplate(doc.smsTemplate, R.smsBody(doc, { name: "Test Buyer", numbers: ["S0001", "S0002"] }));
+    const text = renderTemplate(doc.smsTemplate, R.smsBody(doc, { name: "Test Buyer", numbers: [R.numbering(doc).prefix + "0001", R.numbering(doc).prefix + "0002"] }));
     const r = await sendSms(to, text);
     return { ok: true, text, sid: r.sid };
   },
@@ -484,25 +597,6 @@ function saleView(x) {
   return { ...x, phonePretty: prettyPhone(x.phone) };
 }
 
-// Text one sale's numbers to its buyer and record the result.
-async function textSale(s, doc, saleId) {
-  const sale = doc.sales.find((x) => x.id === saleId);
-  let result;
-  try {
-    if (!sale.phone) throw new Error("No phone number");
-    await sendSms(sale.phone, renderTemplate(doc.smsTemplate, R.smsBody(doc, sale)));
-    result = { status: "sent", at: new Date().toISOString() };
-  } catch (e) {
-    result = { status: smsConfigured() ? "failed" : "not-configured", at: new Date().toISOString(), error: e.message };
-  }
-  return R.updateRaffle(s, (d) => {
-    const x = d.sales.find((y) => y.id === saleId);
-    x.sms = result;
-    if (result.status === "sent") for (const n of x.numbers) d.texted[n] = result.at;
-    R.logSms(d, { to: x.phone, name: x.name, numbers: x.numbers, ok: result.status === "sent", error: result.error || "", kind: "sale" });
-  });
-}
-
 function raffleView(doc) {
   const types = {};
   for (const t of doc.gbTickets) types[t.type] = (types[t.type] || 0) + 1;
@@ -526,6 +620,12 @@ function raffleView(doc) {
       smsTemplate: doc.smsTemplate,
       smsConfigured: smsConfigured(),
       salesSummary: R.salesSummary(doc),
+      gbRecord: { ...R.EMPTY.gbRecord, ...(doc.gbRecord || {}) },
+      numbering: R.numbering(doc),
+      stripe: { configured: S.stripeConfigured(), mode: S.stripeMode() },
+      gbConfigured: !!process.env.GIVEBUTTER_API_KEY,
+      gbUnrecorded: doc.sales.filter((x) => R.shouldRecord(doc, x)).length,
+      gbVoidedToFix: doc.sales.filter((x) => x.voided && x.gb?.status === "recorded").length,
       textPending: R.textQueue(doc, normalizePhone).groups.length,
     },
   };

@@ -1,8 +1,12 @@
-/* Raffle screen. Polls /api/raffle; when staff draw a winner, the reel spins and lands on it. */
+/* Raffle screen. Polls /api/raffle; when staff draw a winner, the winning ticket number appears on
+ * digit drums: the year prefix (always the same) locks in quickly, then each of the last four digits
+ * spins a little longer than the one before. Names are never shown here, only on the staff page. */
 (() => {
   const POLL_MS = 1500;
-  const SPIN_MS = 8000; // reel spin length
-  const FILLER = 56; // rows that fly past before the winner
+  // When each drum stops (ms after the draw starts). Prefix digits are quick; the last four build suspense.
+  const PREFIX_STOPS = [900, 1150, 1400, 1650];
+  const KEY_STOPS = [3400, 5300, 7500, 10400];
+  const SPIN_MS = KEY_STOPS[KEY_STOPS.length - 1];
   const params = new URLSearchParams(location.search);
   const fromDisplay = params.get("from") === "display";
   const $ = (id) => document.getElementById(id);
@@ -77,7 +81,7 @@
           return `<li class="${showWinner ? "won" : ""}${p.id === nowId && !showWinner ? " now" : ""}${avail ? " avail" : ""}">
             <span class="pi">${showWinner ? "✓" : i + 1}</span>
             <span class="pn">${esc(p.name)}</span>
-            <span class="pw">${showWinner ? esc(p.winner.name) + " · " + esc(p.winner.number) : p.id === nowId ? (spinning ? "Drawing now…" : "Up next") : avail && choosingNow ? "Available to choose" : esc(p.detail || "")}</span>
+            <span class="pw">${showWinner ? "Ticket " + esc(p.winner.number) : p.id === nowId ? (spinning ? "Drawing now…" : "Up next") : avail && choosingNow ? "Available to choose" : esc(p.detail || "")}</span>
           </li>`;
         }).join("")
       : `<li class="empty dim-note">Prizes will appear here.</li>`;
@@ -108,55 +112,91 @@
     document.querySelector(".r-idle-foot").hidden = !n;
   }
 
-  /* ---------------- Reel ---------------- */
-  const rowHTML = (e, win) => `<div class="reel-row${win ? " win" : ""}"><span class="n">${esc(e.number)}</span><span class="nm">${esc(e.name)}</span></div>`;
+  /* ---------------- Digit drums ---------------- */
+  const DIGITS = "0123456789", LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let drumTimers = [];
+  // How many characters at the start are the shared prefix (e.g. "2026" of 20260427).
+  const prefixLen = (num) => { const p = data?.prefix || ""; return p && num.startsWith(p) && num.length > p.length ? p.length : Math.max(0, num.length - 4); };
+
+  function buildDrums(num) {
+    const pl = prefixLen(num);
+    $("drums").innerHTML = [...num].map((ch, i) => `${i === pl && pl ? '<div class="drum-gap"></div>' : ""}<div class="drum${i >= pl ? " key" : " pre"}" data-i="${i}"><div class="drum-strip"></div></div>`).join("");
+    return pl;
+  }
+
+  // Fill a drum's strip with characters that end on `ch`; `turns` sets how far it travels.
+  function stripFor(ch, turns) {
+    const set = /\d/.test(ch) ? DIGITS : /[A-Z]/i.test(ch) ? LETTERS : null;
+    if (!set) return [ch];
+    const start = Math.floor(Math.random() * set.length);
+    const out = [];
+    for (let k = 0; k < turns * set.length; k++) out.push(set[(start + k) % set.length]);
+    // Land exactly on the target (plus one below it, so the strip never shows empty space).
+    while (out[out.length - 1] === ch) out.pop();
+    let k = set.indexOf(out[out.length - 1]);
+    do { k = (k + 1) % set.length; out.push(set[k]); } while (set[k] !== ch.toUpperCase());
+    out.push(set[(k + 1) % set.length]);
+    return out;
+  }
 
   function startDraw(cur, animate) {
+    drumTimers.forEach(clearTimeout); drumTimers = [];
     $("idle").hidden = true;
     $("draw").hidden = false;
     $("winner").hidden = true;
     $("drawKicker").textContent = cur.prize ? "Drawing for" : "Drawing a ticket";
     $("drawPrize").textContent = cur.prize ? cur.prize.name : "The winner picks a prize";
-    const reel = $("reel"), strip = $("strip");
-    reel.classList.remove("landed");
+    $("drumLbl").textContent = "Winning ticket number";
+    $("drumStage").style.setProperty("--heat", 0);
+    const num = String(cur.winner.number || "").toUpperCase();
+    const pl = buildDrums(num);
+    $("drums").classList.remove("done");
+    const drums = [...$("drums").querySelectorAll(".drum")];
+    const stops = drums.map((_, i) => (i < pl ? PREFIX_STOPS[i] ?? PREFIX_STOPS[PREFIX_STOPS.length - 1] + 250 * (i - 3) : KEY_STOPS[Math.max(0, KEY_STOPS.length - (num.length - i))] ?? KEY_STOPS[0]));
+    const dh = () => drums[0].getBoundingClientRect().height;
 
-    // Fillers from the sample (repeat if the pool is small), then the winner, then two more.
-    const pool = cur.reel.length ? cur.reel : [{ number: "", name: "" }];
-    const pick = (i) => pool[(i * 7 + Math.floor(Math.random() * pool.length)) % pool.length];
-    const rows = Array.from({ length: FILLER }, (_, i) => pick(i));
-    const winIndex = rows.length;
-    rows.push(cur.winner, pick(1), pick(2));
-    strip.innerHTML = rows.map((e, i) => rowHTML(e, i === winIndex)).join("");
-
-    const rowH = strip.firstElementChild.getBoundingClientRect().height;
-    const target = -(winIndex - 2) * rowH; // winner sits in the middle (3rd) row
-    strip.style.transition = "none";
-    strip.classList.remove("spinning");
-
-    if (!animate) {
+    drums.forEach((d, i) => {
+      const strip = d.querySelector(".drum-strip");
+      // Longer stop = more turns, so every drum keeps a similar, fast speed until it slows down.
+      const chars = animate ? stripFor(num[i], Math.max(2, Math.round(stops[i] / 450))) : [num[i], " "];
+      strip.innerHTML = chars.map((c) => `<span>${esc(c)}</span>`).join("");
+      const target = -(chars.length - 2) * dh();
+      if (!animate) { strip.style.transform = `translateY(${target}px)`; d.classList.add("landed"); return; }
+      strip.style.transition = "none";
+      strip.style.transform = "translateY(0)";
+      strip.getBoundingClientRect();
+      d.classList.add("spinning");
+      // Prefix drums snap in; key drums ease out slowly so the last digits crawl into place.
+      const ease = i < pl ? "cubic-bezier(0.2, 0.7, 0.25, 1)" : i === drums.length - 1 ? "cubic-bezier(0.1, 0.62, 0.08, 1)" : "cubic-bezier(0.14, 0.7, 0.16, 1)";
+      strip.style.transition = `transform ${stops[i]}ms ${ease}`;
       strip.style.transform = `translateY(${target}px)`;
-      land(cur, false);
-      return;
-    }
+      drumTimers.push(setTimeout(() => { d.classList.remove("spinning"); d.classList.add("slow"); }, stops[i] * 0.6));
+      drumTimers.push(setTimeout(() => {
+        d.classList.remove("slow", "spinning", "next");
+        d.classList.add("landed");
+        const nextKey = drums.find((x) => !x.classList.contains("landed") && x.classList.contains("key"));
+        if (i >= pl - 1 && nextKey) nextKey.classList.add("next");
+        const landedKeys = drums.filter((x) => x.classList.contains("key") && x.classList.contains("landed")).length;
+        $("drumStage").style.setProperty("--heat", (0.08 + 0.07 * landedKeys).toFixed(2));
+        clunk(i >= pl, i === drums.length - 1);
+      }, stops[i]));
+    });
+
+    if (!animate) { land(cur, false); return; }
     spinning = true;
     renderPrizes();
-    strip.style.transform = "translateY(0)";
-    strip.getBoundingClientRect(); // commit the start position
-    strip.classList.add("spinning");
-    strip.style.transition = `transform ${SPIN_MS}ms cubic-bezier(0.12, 0.8, 0.18, 1)`;
-    strip.style.transform = `translateY(${target}px)`;
-    setTimeout(() => strip.classList.remove("spinning"), SPIN_MS * 0.55);
-    tickSound(strip, rowH);
-    setTimeout(() => { spinning = false; land(cur, true); }, SPIN_MS + 150);
+    tickSound(drums, stops, dh());
+    drumTimers.push(setTimeout(() => { spinning = false; land(cur, true); }, SPIN_MS + 400));
   }
 
   function land(cur, celebrate) {
     shownPrize = cur.prize?.id || null;
-    $("reel").classList.add("landed");
+    $("drums").classList.add("done");
+    $("drumStage").style.setProperty("--heat", 0.32);
     $("drawKicker").textContent = !cur.choice ? "Winner of" : cur.prize ? "Winner chose" : "We have a winner";
     $("drawPrize").textContent = cur.prize ? cur.prize.name : `${data.available} prize${data.available === 1 ? "" : "s"} to choose from`;
-    $("winnerName").textContent = cur.winner.name;
-    $("winnerSub").innerHTML = `Ticket <b>${esc(cur.winner.number)}</b>${cur.winner.source === "participant" ? " · race participant entry" : ""}` +
+    $("winnerName").textContent = "Check your tickets!";
+    $("winnerSub").innerHTML = (cur.winner.source === "participant" ? "Race participant entry · " : "") + "Bring your slip or text to the raffle table" +
       (cur.choice ? (cur.prize ? `<span class="chose">🎁 ${esc(cur.prize.name)}</span>` : `<span class="ask">Come up and choose from the prizes on the table</span>`) : "");
     $("winner").hidden = false;
     renderPrizes();
@@ -183,17 +223,28 @@
     g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
     o.connect(g).connect(audio.destination); o.start(at); o.stop(at + dur + 0.02);
   }
-  function tickSound(strip, rowH) {
+  // A tick each time the next drum still spinning passes a digit.
+  function tickSound(drums, stops, h) {
     if (!audio || !soundOn) return;
-    let last = 0;
     const t0 = performance.now();
+    const last = new Map();
     const step = () => {
-      const m = new DOMMatrixReadOnly(getComputedStyle(strip).transform);
-      const idx = Math.floor(-m.m42 / rowH);
-      if (idx !== last) { last = idx; beep(1400, audio.currentTime, 0.03, 0.035); }
-      if (performance.now() - t0 < SPIN_MS) requestAnimationFrame(step);
+      const t = performance.now() - t0;
+      const i = stops.findIndex((st, k) => t < st && !drums[k].classList.contains("landed"));
+      if (i >= 0) {
+        const m = new DOMMatrixReadOnly(getComputedStyle(drums[i].querySelector(".drum-strip")).transform);
+        const idx = Math.floor(-m.m42 / h);
+        if (idx !== last.get(i)) { last.set(i, idx); beep(1300 + i * 40, audio.currentTime, 0.025, 0.03); }
+      }
+      if (t < SPIN_MS) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+  }
+  function clunk(key, final) {
+    if (!audio) return;
+    const t = audio.currentTime;
+    beep(key ? (final ? 220 : 330) : 520, t, key ? 0.22 : 0.08, key ? 0.12 : 0.05, "triangle");
+    if (key) beep(key && final ? 110 : 165, t, 0.3, 0.08, "sine");
   }
   function fanfare() {
     if (!audio) return;

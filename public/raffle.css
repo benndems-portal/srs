@@ -88,3 +88,30 @@
   .reel-row { font-size: 1.4rem; padding: 0 1rem; gap: 0.8rem; }
   .r-winner-name { font-size: 2.6rem; white-space: normal; }
 }
+
+/* ---------- Digit drums: the winning number appears one digit at a time ---------- */
+.drum-stage { --dw: clamp(3.2rem, 7.2vw, 8.4rem); --dh: calc(var(--dw) * 1.42); margin: auto 0; padding: 1rem 0; position: relative; }
+.drum-stage::before { content: ""; position: absolute; inset: -30% -10%; background: radial-gradient(closest-side, rgba(242, 193, 78, var(--heat, 0)), transparent 70%); transition: --heat 0.6s ease, background 0.6s ease; pointer-events: none; }
+.drum-lbl { position: relative; color: var(--muted); text-transform: uppercase; letter-spacing: 0.24em; font-weight: 800; font-size: 1.2rem; margin-bottom: 1.1rem; }
+.drums { position: relative; display: flex; justify-content: center; align-items: center; gap: calc(var(--dw) * 0.1); }
+.drum-gap { width: calc(var(--dw) * 0.32); }
+.drum { position: relative; width: var(--dw); height: var(--dh); overflow: hidden; border-radius: calc(var(--dw) * 0.14);
+  background: linear-gradient(180deg, #05070f, #182044 50%, #05070f); border: 2px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0.6rem 1.2rem rgba(0, 0, 0, 0.65), inset 0 -0.6rem 1.2rem rgba(0, 0, 0, 0.65); transition: border-color 0.3s, box-shadow 0.4s, transform 0.3s; }
+.drum::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0.75), transparent 28%, transparent 72%, rgba(0, 0, 0, 0.75)); pointer-events: none; }
+.drum-strip { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
+.drum-strip span { display: block; height: var(--dh); line-height: var(--dh); text-align: center; font-weight: 800; font-size: calc(var(--dw) * 0.95); color: rgba(244, 241, 234, 0.85); font-variant-numeric: tabular-nums; }
+.drum.spinning .drum-strip { filter: blur(2px); }
+.drum.slow .drum-strip { filter: blur(0.6px); }
+.drum.next { border-color: rgba(242, 193, 78, 0.55); box-shadow: inset 0 0.6rem 1.2rem rgba(0, 0, 0, 0.65), inset 0 -0.6rem 1.2rem rgba(0, 0, 0, 0.65), 0 0 2rem rgba(242, 193, 78, 0.25); animation: nextpulse 0.9s ease-in-out infinite; }
+.drum.landed { border-color: rgba(244, 241, 234, 0.35); }
+.drum.landed .drum-strip span { color: var(--text); }
+.drum.key.landed { border-color: var(--gold); box-shadow: 0 0 2.2rem rgba(242, 193, 78, 0.55), inset 0 0 1.4rem rgba(242, 193, 78, 0.18); animation: thunk 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.drum.key.landed .drum-strip span { color: var(--gold); }
+.drums.done .drum.key { animation: glowdrum 1.3s ease-in-out 3; }
+@keyframes thunk { 0% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes nextpulse { 50% { box-shadow: inset 0 0.6rem 1.2rem rgba(0, 0, 0, 0.65), inset 0 -0.6rem 1.2rem rgba(0, 0, 0, 0.65), 0 0 3.2rem rgba(242, 193, 78, 0.5); } }
+@keyframes glowdrum { 50% { box-shadow: 0 0 4.5rem rgba(242, 193, 78, 0.95), inset 0 0 1.4rem rgba(242, 193, 78, 0.3); } }
+.r-winner-name.num { font-family: Inter, system-ui, sans-serif; font-weight: 800; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.r-winner-name.num b { color: var(--gold); }
+@media (max-width: 860px) { .drum-stage { --dw: clamp(2.2rem, 9.5vw, 4rem); } }

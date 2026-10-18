@@ -69,6 +69,43 @@
     .pill.card { color: #6fa8ff; background: rgba(111,168,255,.14); }
     .pill.cash { color: var(--green); background: rgba(57,217,138,.12); }
     .login { max-width: 380px; margin: 12vh auto; }
+    /* Fast lookup flow */
+    .steph { display:flex; align-items:center; gap:10px; margin-bottom: 10px; }
+    .steph h2 { margin:0; flex: 1; }
+    .stepn { width: 26px; height: 26px; border-radius: 50%; background: var(--gold); color:#1a1406; display:grid; place-items:center; font-weight: 800; font-size: 14px; }
+    .search { position: relative; }
+    #q { font-size: 24px; padding: 16px; letter-spacing: .02em; }
+    .results { list-style:none; margin: 6px 0 0; padding: 0; border-radius: 10px; overflow: hidden; }
+    .results li { display:flex; gap: 12px; align-items: baseline; padding: 11px 14px; background: var(--card); border-bottom: 1px solid var(--line); cursor: pointer; }
+    .results li.on { background: rgba(242,193,78,.16); box-shadow: inset 3px 0 0 var(--gold); }
+    .results .rn { font-weight: 700; font-size: 18px; flex: 1; min-width: 0; overflow:hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .results .rn b { color: var(--gold); }
+    .results .rp { color: var(--muted); white-space: nowrap; }
+    .results .rt { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; padding: 2px 7px; border-radius: 20px; background: rgba(111,168,255,.14); color: #6fa8ff; white-space: nowrap; }
+    .results .rt.gb { background: rgba(255,255,255,.08); color: var(--muted); }
+    .results li.new .rn { color: var(--gold); }
+    .buyer-meta { display:flex; gap: 14px; margin-top: 8px; flex-wrap: wrap; }
+    .buyer-meta span { flex: 1; }
+    .paybig { display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+    .paybig button { position: relative; background: var(--card); color: var(--text); border: 2px solid var(--line); border-radius: 14px; padding: 18px 8px 14px; font: inherit; font-size: 22px; font-weight: 800; cursor: pointer; }
+    .paybig button:hover { border-color: var(--gold); }
+    .paybig .ico { display:block; font-size: 30px; line-height: 1.1; }
+    .paybig kbd { position:absolute; top: 6px; right: 8px; font: 600 11px Inter, sans-serif; color: var(--dim); }
+    .paybig button[data-pay=card] { border-color: rgba(111,168,255,.45); }
+    .paybig button:disabled { opacity: .45; cursor: default; }
+    .checkrow { display:flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .checkrow input { flex: 1; min-width: 160px; }
+    .opts select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 14px; }
+    .term { font-size: 13px; color: var(--muted); }
+    .term b { color: var(--green); } .term.none b { color: var(--red); }
+    .waiting { text-align: center; border-color: #6fa8ff; }
+    .waiting .wbig { font-size: 40px; font-weight: 800; }
+    .waiting .wmsg { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .waiting.declined .wmsg { color: var(--red); }
+    .spinner { width: 44px; height: 44px; margin: 4px auto 10px; border-radius: 50%; border: 4px solid rgba(111,168,255,.25); border-top-color: #6fa8ff; animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .done .nums span b, .sales .nums b { color: var(--text); }
+    .pill.check { color: #c9a6ff; background: rgba(201,166,255,.14); }
 
     /* ---------- The printed slip (80 mm receipt paper, ~72 mm printable) ---------- */
     #slip { display: none; }
@@ -85,8 +122,9 @@
     #slip .count { font-size: 10pt; }
     #slip .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 3mm; margin: 3mm 0; border-top: 0.4mm dashed #000; border-bottom: 0.4mm dashed #000; padding: 2.5mm 0; }
     #slip .nums.one { grid-template-columns: 1fr; text-align: center; }
-    #slip .nums span { font: 800 17pt/1.15 "Courier New", monospace; letter-spacing: .02em; }
-    #slip .nums.one span { font-size: 30pt; }
+    #slip .nums span { font: 600 15pt/1.15 "Courier New", monospace; letter-spacing: .02em; }
+    #slip .nums span b { font-weight: 900; }
+    #slip .nums.one span { font-size: 24pt; }
     #slip .info { text-align: center; font-weight: 700; font-size: 10pt; }
     #slip .foot { text-align: center; font-size: 9pt; margin-top: 2mm; }
     #slip .ref { text-align: center; font-size: 8pt; margin-top: 2mm; }
@@ -110,6 +148,7 @@
     <header class="bar"><div class="wrap">
       <h1 id="hdr">Sell raffle tickets</h1>
       <div class="tot" id="totals"></div>
+      <span class="term" id="termState" title="Card terminal iPhones"></span>
       <a class="btn ghost sm" href="/admin" target="_blank" rel="noopener">Staff page ↗</a>
     </div></header>
 
@@ -117,46 +156,69 @@
       <div id="smsWarn" class="msg warn" hidden>Texting isn't set up yet (Twilio settings in Netlify). Sales still work and print. Text the numbers later from the staff page.</div>
       <div class="grid" style="margin-top:12px">
         <div>
-          <!-- Sale form -->
-          <form class="card" id="saleForm" autocomplete="off">
-            <h2>New sale</h2>
-            <label for="fName">Buyer's name *</label>
-            <input id="fName" name="name" required placeholder="First and last name">
-            <label for="fPhone">Mobile number <span class="dim">(we text their ticket numbers)</span></label>
-            <input id="fPhone" name="phone" type="tel" inputmode="tel" placeholder="555-123-4567">
-            <div id="emailWrap" hidden><label for="fEmail">Email <span class="dim">(optional)</span></label><input id="fEmail" name="email" type="email" placeholder="name@example.com"></div>
-            <a href="#" id="addEmail" class="dim" style="display:inline-block;margin-top:6px">+ add email</a>
+          <!-- Step 1: find the buyer -->
+          <section class="card" id="findCard">
+            <div class="steph"><span class="stepn">1</span><h2>Buyer</h2><span class="dim" id="lookupInfo"></span></div>
+            <div class="search">
+              <input id="q" autocomplete="off" spellcheck="false" placeholder="Type phone number or last name" aria-label="Phone number or last name">
+              <ul id="results" class="results" role="listbox"></ul>
+            </div>
+            <div id="buyer" class="buyer" hidden>
+              <div class="row">
+                <div style="flex:2"><label for="fName">Name *</label><input id="fName" required placeholder="First and last name"></div>
+                <div><label for="fPhone">Mobile <span class="dim">(texts their numbers)</span></label><input id="fPhone" type="tel" inputmode="tel" placeholder="706-555-1234"></div>
+              </div>
+              <div class="buyer-meta"><span id="buyerFrom" class="dim"></span><a href="#" id="addEmail" class="dim">+ email</a><a href="#" id="changeBuyer" class="dim">change buyer (Esc)</a></div>
+              <div id="emailWrap" hidden><label for="fEmail">Email <span class="dim">(optional)</span></label><input id="fEmail" type="email" placeholder="name@example.com"></div>
+            </div>
+          </section>
 
-            <label>How many tickets?</label>
+          <!-- Step 2: tickets + payment -->
+          <section class="card" id="payCard" style="margin-top:12px">
+            <div class="steph"><span class="stepn">2</span><h2>Tickets &amp; payment</h2></div>
             <div class="qty" id="qty"></div>
             <div class="row" style="margin-top:8px">
-              <div><label for="fCount" style="margin-top:0">Other amount</label><input id="fCount" type="number" min="1" max="500" inputmode="numeric" placeholder="#"></div>
+              <div><label for="fCount" style="margin-top:0">Other #</label><input id="fCount" type="number" min="1" max="500" inputmode="numeric" placeholder="#"></div>
               <div><label for="fAmount" style="margin-top:0">Total ($)</label><input id="fAmount" inputmode="decimal"></div>
             </div>
-
-            <label>Payment</label>
-            <div class="pay" id="pay">
-              <button type="button" data-pay="cash" class="on">💵 Cash</button>
-              <button type="button" data-pay="card">💳 Card <small>(charged in Givebutter)</small></button>
+            <div class="paybig" id="pay">
+              <button type="button" data-pay="cash"><span class="ico">💵</span>Cash<kbd>F1</kbd></button>
+              <button type="button" data-pay="check"><span class="ico">🧾</span>Check<kbd>F2</kbd></button>
+              <button type="button" data-pay="card"><span class="ico">💳</span>Card<kbd>F3</kbd></button>
             </div>
-            <div id="cardNote" class="dim" style="margin-top:6px" hidden>Run the card in Givebutter first (Tap to Pay or card reader), then tap Sell.</div>
-
-            <button class="btn big" id="sellBtn">Sell &amp; print</button>
-            <div class="opts">
-              <label><input type="checkbox" id="optPrint" checked> Print slip automatically</label>
+            <div id="checkRow" class="checkrow" hidden>
+              <input id="fCheck" inputmode="numeric" placeholder="Check # (optional)">
+              <button class="btn" type="button" id="checkGo">Finish check sale ↵</button>
+              <button class="btn ghost" type="button" id="checkBack">Back</button>
             </div>
             <div id="saleMsg"></div>
-          </form>
+            <div class="opts">
+              <label><input type="checkbox" id="optPrint" checked> Print slip automatically</label>
+              <label>Cards go to <select id="optTerminal"><option value="">any card terminal</option></select></label>
+              <a href="#" id="manualCard" class="dim">Card charged another way…</a>
+            </div>
+          </section>
+
+          <!-- Waiting for the card -->
+          <section class="card waiting" id="cardWait" hidden style="margin-top:12px">
+            <div class="spinner" aria-hidden="true"></div>
+            <div class="wbig" id="wAmount"></div>
+            <div class="wmsg" id="wMsg">Waiting for the card terminal…</div>
+            <div class="dim" id="wSub"></div>
+            <div class="row" style="justify-content:center;margin-top:14px">
+              <button class="btn danger" type="button" id="wCancel">Cancel card payment</button>
+            </div>
+          </section>
 
           <!-- Result -->
-          <div class="card done" id="done" hidden style="margin-top:16px">
+          <div class="card done" id="done" hidden style="margin-top:12px">
             <div class="dim">Sold</div>
             <div class="who" id="dWho"></div>
             <div class="nums" id="dNums"></div>
             <div id="dSms"></div>
             <div class="row" style="justify-content:center;margin-top:12px">
               <button class="btn ghost" id="dPrint">🖨 Print again</button>
-              <button class="btn" id="dNew">Next sale ↵</button>
+              <button class="btn" id="dNew">Next buyer ↵</button>
             </div>
           </div>
         </div>

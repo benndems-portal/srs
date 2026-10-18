@@ -24,11 +24,29 @@ export async function gb(path) {
   return res.json();
 }
 
+// Write calls (POST/PUT) with a JSON body. Errors keep Givebutter's validation message.
+export async function gbWrite(method, path, body) {
+  const key = process.env.GIVEBUTTER_API_KEY;
+  if (!key) throw new HttpError(500, "GIVEBUTTER_API_KEY is not set in Netlify environment variables.");
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data.errors ? Object.entries(data.errors).map(([k, v]) => `${k}: ${[].concat(v).join(" ")}`).join("; ") : data.message || "";
+    throw new Error(`Givebutter ${res.status}${detail ? ": " + detail : ""}`);
+  }
+  return data.data ?? data;
+}
+
 export async function listCampaigns() {
   const out = [];
   for (let page = 1; page <= 5; page++) {
     const r = await gb(`/campaigns?page=${page}`);
-    for (const c of r.data || []) out.push({ id: String(c.id), title: c.title, type: c.type, status: c.status, raised: c.raised, goal: c.goal, url: c.url });
+    for (const c of r.data || []) out.push({ id: String(c.id), code: c.code || "", title: c.title, type: c.type, status: c.status, raised: c.raised, goal: c.goal, url: c.url });
     if (!r.meta || r.meta.current_page >= r.meta.last_page) break;
   }
   return out;

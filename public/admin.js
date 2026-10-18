@@ -394,6 +394,8 @@
   function renderRaffle() {
     const r = raffle, p = r.pool;
     renderSalesCard();
+    renderNumbering();
+    renderGbRecord();
     $("rStats").innerHTML = [
       ["Entries in the pool", `${p.eligible.toLocaleString()}${p.eligible !== p.entries ? ` <small style="font-size:13px;color:var(--muted)">of ${p.entries.toLocaleString()}</small>` : ""}`],
       ["People", p.people.toLocaleString()],
@@ -667,7 +669,7 @@
   const bundlesText = (b) => (b || []).map((x) => `${x.count} for ${x.price}`).join(", ");
   function renderSalesCard() {
     const r = raffle, c = r.salesConfig || {}, t = r.salesSummary;
-    $("rSalesStats").innerHTML = [["Sold at event", `${t.tickets} tickets`], ["Sales", t.sales], ["Cash", fmt$(t.cash)], ["Card", fmt$(t.card)]].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${esc(v)}</b></div>`).join("");
+    $("rSalesStats").innerHTML = [["Sold at event", `${t.tickets} tickets`], ["Sales", t.sales], ["Cash", fmt$(t.cash)], ["Check", fmt$(t.check || 0)], ["Card", fmt$(t.card)]].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${esc(v)}</b></div>`).join("");
     if (!salesFormDirty) {
       $("rPrice").value = c.price ?? "";
       $("rBundles").value = bundlesText(c.bundles);
@@ -679,7 +681,7 @@
     $("rTwilio").innerHTML = r.smsConfigured ? `<span class="pill won">Connected</span> Twilio settings found in Netlify.` : `<span class="pill error">Not set up</span> Add <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code> and <code>TWILIO_MESSAGING_SERVICE_SID</code> in Netlify, then redeploy.`;
   }
   function smsLen() {
-    const sample = $("rSmsTpl").value.replace(/\{first\}/g, "Sarah").replace(/\{name\}/g, "Sarah Ramsey").replace(/\{numbers\}/g, "S0001, S0002, S0003").replace(/\{count\}/g, "3").replace(/\{event\}/g, raffle?.title || "");
+    const sample = $("rSmsTpl").value.replace(/\{first\}/g, "Sarah").replace(/\{name\}/g, "Sarah Ramsey").replace(/\{numbers\}/g, [1, 2, 3].map((i) => (raffle?.numbering?.prefix || "2026") + String(i).padStart(4, "0")).join(", ")).replace(/\{count\}/g, "3").replace(/\{event\}/g, raffle?.title || "");
     $("rSmsLen").textContent = `${sample.length} characters with 3 numbers${sample.length > 160 ? " (sends as more than one text segment)" : ""}. Preview: ${sample}`;
   }
   for (const id of ["rPrice", "rBundles", "rDrawInfo", "rFooter", "rSmsTpl"]) $(id).addEventListener("input", () => { salesFormDirty = true; if (id === "rSmsTpl") smsLen(); });
@@ -733,10 +735,104 @@
   $("rSmsLogBtn").onclick = () => loadSmsLog().catch((e) => msg("rTextMsg", e.message, false));
   $("rSalesCsv").onclick = async () => {
     const { sales } = await api("raffleSales");
-    download("raffle-sales.csv", [["Time", "Name", "Phone", "Email", "Tickets", "Numbers", "Payment", "Amount", "Text", "Voided"],
-      ...sales.slice().reverse().map((x) => [new Date(x.at).toLocaleString(), x.name, x.phonePretty, x.email, x.count, x.numbers.join(" "), x.payment, x.amount, x.sms?.status || "", x.voided ? "yes" : ""])]);
+    download("raffle-sales.csv", [["Time", "Name", "Phone", "Email", "Tickets", "Numbers", "Payment", "Check #", "Card", "Stripe payment", "Amount", "Text", "Givebutter", "Voided", "Refunded"],
+      ...sales.slice().reverse().map((x) => [new Date(x.at).toLocaleString(), x.name, x.phonePretty, x.email, x.count, x.numbers.join(" "), x.payment, x.checkNo || "", x.stripe ? `${x.stripe.brand || ""} ${x.stripe.last4 || ""}`.trim() : "", x.stripe?.pi || "", x.amount, x.sms?.status || "", x.gb?.status || "", x.voided ? "yes" : "", x.stripe?.refunded ? "yes" : ""])]);
   };
   $("tabs").addEventListener("click", (e) => { if (e.target.closest("[data-tab=raffle]")) loadPending(); });
+
+  /* Ticket numbering */
+  let numDirty = false;
+  const fmtNum = (n, start) => `${n.prefix} ${String(start).padStart(4, "0")}`;
+  function renderNumbering() {
+    const n = raffle.numbering;
+    if (!n) return;
+    if (!numDirty) { $("rNumPrefix").value = n.prefix; $("rNumSale").value = n.saleStart; $("rNumPart").value = n.participantStart; $("rNumMan").value = n.manualStart; }
+    document.querySelectorAll(".numSale").forEach((e) => (e.textContent = fmtNum(n, n.saleStart)));
+    document.querySelectorAll(".numPart").forEach((e) => (e.textContent = fmtNum(n, n.participantStart)));
+    document.querySelectorAll(".numMan").forEach((e) => (e.textContent = fmtNum(n, n.manualStart)));
+    const room = Math.min(...[n.participantStart, n.manualStart].filter((b) => b > n.saleStart), 10000) - n.saleStart;
+    $("rNumInfo").textContent = `Room for ${room.toLocaleString()} sold tickets.`;
+    const st = raffle.stripe || {};
+    $("rStripeInfo").innerHTML = st.configured ? `<span class="pill won">Connected</span> Stripe key found (<b>${st.mode === "live" ? "LIVE" : "TEST"} mode</b>). Card sales on the Sell page are sent to the SRS Card Terminal app on an iPhone paired with a Stripe Reader M2.` : `<span class="pill error">Not set up</span> Add <code>STRIPE_SECRET_KEY</code> in Netlify to take cards on the M2 readers. Until then, use “Card charged another way…” on the Sell page.`;
+  }
+  for (const id of ["rNumPrefix", "rNumSale", "rNumPart", "rNumMan"]) $(id).addEventListener("input", () => { numDirty = true; });
+  $("rNumSave").onclick = async () => {
+    try {
+      await rApi("raffleSaveNumbering", { numbering: { prefix: $("rNumPrefix").value.trim(), saleStart: $("rNumSale").value, participantStart: $("rNumPart").value, manualStart: $("rNumMan").value } }, "rNumMsg");
+      numDirty = false; renderNumbering(); msg("rNumMsg", "Saved.");
+    } catch {}
+  };
+  async function loadTerminals() {
+    try {
+      const r = await api("cardTerminals");
+      $("rTermList").innerHTML = r.terminals.length ? "Open right now: " + r.terminals.map((t) => `<b>${esc(t.name)}</b>${t.reader ? ` (${esc(t.reader)}${t.battery != null ? `, battery ${Math.round(t.battery * 100)}%` : ""})` : " (no reader connected)"}${t.busy ? " · taking a payment" : ""}`).join(", ") : "No card terminal app is open right now.";
+    } catch (e) { $("rTermList").textContent = e.message; }
+  }
+  $("rTermRefresh").onclick = loadTerminals;
+
+  /* Buyer lookup */
+  async function lookupInfo() {
+    try { const r = await api("lookupIndex"); $("rLookupInfo").textContent = r.pulledAt ? `${r.rows.length.toLocaleString()} contacts, pulled ${new Date(r.pulledAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "Not pulled yet."; } catch {}
+  }
+  $("rLookupPull").onclick = async () => {
+    const btn = $("rLookupPull"); btn.disabled = true;
+    try {
+      let page = 1, r;
+      do { r = await api("lookupPull", { fromPage: page }); page = r.nextPage; msg("rLookupMsg", `Loading… ${r.loaded.toLocaleString()} contacts (page ${Math.min(page || r.lastPage, r.lastPage)} of ${r.lastPage})`); } while (!r.done);
+      msg("rLookupMsg", `Done: ${r.loaded.toLocaleString()} contacts. Reload the Sell page to use them.`);
+      lookupInfo();
+    } catch (e) { msg("rLookupMsg", e.message, false); }
+    finally { btn.disabled = false; }
+  };
+
+  /* Sending sales to Givebutter */
+  let gbRecDirty = false;
+  function renderGbRecord() {
+    const r = raffle, g = r.gbRecord || {};
+    $("rGbRecWarn").hidden = r.gbConfigured;
+    if (!gbRecDirty) { $("rGbOn").checked = !!g.enabled; $("rGbAuto").checked = !!g.auto; $("rGbCode").value = g.campaignCode || ""; $("rGbFallback").value = g.fallbackEmail || ""; }
+    $("rGbPending").hidden = !r.gbUnrecorded;
+    $("rGbPending").textContent = `Send ${r.gbUnrecorded} sale${r.gbUnrecorded === 1 ? "" : "s"} to Givebutter`;
+    $("rGbInfo2").innerHTML = (!g.enabled ? "Sending to Givebutter is turned off." : r.gbUnrecorded ? `<b>${r.gbUnrecorded}</b> sale${r.gbUnrecorded === 1 ? " is" : "s are"} not in Givebutter yet${g.campaignCode ? ` (campaign <b>${esc(g.campaignCode)}</b>)` : " (no campaign selected)"}.` : "Every sale is in Givebutter.") +
+      (r.gbVoidedToFix ? ` <span style="color:var(--red)">${r.gbVoidedToFix} voided sale${r.gbVoidedToFix === 1 ? " is" : "s are"} still in Givebutter. Their note says VOIDED; delete them there.</span>` : "");
+  }
+  for (const id of ["rGbOn", "rGbAuto", "rGbCode", "rGbFallback"]) $(id).addEventListener("input", () => { gbRecDirty = true; });
+  $("rGbCampSel").onchange = (e) => { if (e.target.value) { $("rGbCode").value = e.target.value; gbRecDirty = true; } };
+  $("rGbCampLoad").onclick = async () => {
+    try {
+      const { campaigns } = await api("listCampaigns");
+      $("rGbCampSel").innerHTML = `<option value="">— choose a campaign —</option>` + campaigns.filter((c) => c.code).map((c) => `<option value="${esc(c.code)}">${esc(c.title)} (${esc(c.code)})</option>`).join("");
+      $("rGbCampSel").value = $("rGbCode").value;
+      msg("rGbMsg", `Loaded ${campaigns.length} campaigns.`);
+    } catch (e) { msg("rGbMsg", e.message, false); }
+  };
+  $("rGbSave").onclick = async () => {
+    try {
+      await rApi("raffleSaveGbRecord", { gbRecord: { enabled: $("rGbOn").checked, auto: $("rGbAuto").checked, campaignCode: $("rGbCode").value.trim(), fallbackEmail: $("rGbFallback").value.trim() } }, "rGbMsg");
+      gbRecDirty = false; renderGbRecord(); msg("rGbMsg", "Saved.");
+    } catch {}
+  };
+  $("rGbTest").onclick = async () => {
+    if (!confirm("This creates a real $1.00 cash transaction named “Raffle Test” in Givebutter so you can see where sales land. Delete it in Givebutter afterwards. Continue?")) return;
+    try { const r = await api("raffleTestGbRecord"); msg("rGbMsg", `Created test transaction${r.id ? " " + r.id : ""} in ${r.campaign}. Find it in Givebutter › Transactions, check it, then delete it.`); }
+    catch (e) { msg("rGbMsg", e.message, false); }
+  };
+  $("rGbPending").onclick = async () => {
+    if (!confirm(`Send ${raffle.gbUnrecorded} sales to Givebutter${raffle.gbRecord?.campaignCode ? ` (campaign ${raffle.gbRecord.campaignCode})` : " with no campaign"}?`)) return;
+    let ok = 0; const bad = [];
+    $("rGbPending").disabled = true;
+    try {
+      for (let i = 0; i < 100; i++) {
+        const r = await rApi("raffleRecordPending", {}, "rGbMsg");
+        ok += r.recorded; bad.push(...r.failed);
+        msg("rGbMsg", `Sent ${ok}…`);
+        if (!r.remaining || !r.recorded) break;
+      }
+      msg("rGbMsg", `Sent ${ok} sale${ok === 1 ? "" : "s"} to Givebutter.${bad.length ? ` ${bad.length} failed: ${bad.slice(0, 3).map((b) => `${b.name} (${b.error})`).join("; ")}` : ""}`, !bad.length);
+    } catch {}
+    finally { $("rGbPending").disabled = false; }
+  };
+  $("tabs").addEventListener("click", (e) => { if (e.target.closest("[data-tab=raffle]")) { loadTerminals(); lookupInfo(); } });
 
   /* ---------- Start ---------- */
   async function start() {

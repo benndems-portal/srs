@@ -11,7 +11,6 @@ import { gb } from "./givebutter.mjs";
 
 const KEY = "raffle";
 const SCREEN_KEY = "raffle-screen";
-const REEL_SIZE = 60;
 
 export const EMPTY = {
   title: "Raffle Drawing",
@@ -32,13 +31,28 @@ export const EMPTY = {
   // { id, prizeId (null while a "choice" winner is choosing), prizeName, choice, number, name, email, source, at, status: "won" | "forfeit" }
   draws: [],
   // Tickets sold in person on /sell. Numbers are assigned once and stored, so they never change.
-  sales: [], // { id, numbers: ["S0001"], name, phone, email, count, payment: "cash" | "card", amount, at, voided, sms: { status, at, error } }
+  // { id, numbers: ["20260001"], name, phone, email, count, payment: "cash" | "check" | "card", amount, at, voided,
+  //   checkNo, stripe: { pi, brand, last4, refunded }, contactId, sms: { status, at, error }, gb: { status, id, error } }
+  sales: [],
   saleSeq: 0,
+  // Every ticket number is 8 digits: the prefix (the year) + 4 digits. Each source gets its own block
+  // so numbers never collide: sold tickets 2026 0001…, race participants 2026 5001…, hand-added 2026 9001….
+  numbering: { prefix: "2026", saleStart: 1, participantStart: 5001, manualStart: 9001 },
   salesConfig: {
     price: 10, // per ticket
     bundles: [{ count: 3, price: 25 }, { count: 10, price: 75 }],
     slipFooter: "Keep this slip. Good luck!",
     drawingInfo: "", // e.g. "Drawing Sun Oct 25 at 4:00 PM"
+  },
+  // Record event sales in Givebutter as transactions (POST /v1/transactions). By default they are
+  // sent in one batch after the race ("Send N sales to Givebutter"); auto = send each sale right away.
+  gbRecord: {
+    enabled: true,
+    auto: false,
+    campaignCode: "", // e.g. the raffle campaign's code; blank = no campaign
+    recordCard: true, // false if card sales are charged in Givebutter's own app (already a transaction there)
+    timezone: "America/New_York",
+    fallbackEmail: "", // used only if Givebutter requires an email and the buyer gave none
   },
   smsTemplate: "{event}: thanks {first}! Your raffle ticket numbers: {numbers}. Good luck! Reply STOP to opt out.",
   texted: {}, // entry number -> ISO time it was texted
@@ -65,6 +79,8 @@ export async function getScreen(s) {
 
 /* ---------------- Entries ---------------- */
 const pad = (n, w = 4) => String(n).padStart(w, "0");
+export const numbering = (doc) => ({ ...EMPTY.numbering, ...(doc.numbering || {}) });
+const ticketNo = (doc, block, i) => { const n = numbering(doc); return n.prefix + pad(Number(n[block]) + i); };
 export const personKey = (e) => (e.email ? e.email.trim().toLowerCase() : (e.name || "").trim().toLowerCase().replace(/\s+/g, " "));
 
 // Expand everything into individual entries, each with a unique number.
@@ -76,11 +92,11 @@ export function buildEntries(doc) {
   }
   let seq = 0;
   for (const p of doc.participants) {
-    for (let k = 0; k < doc.participantsEach; k++) out.push({ number: "R" + pad(++seq), name: p.name, email: p.email, phone: p.phone || "", source: "participant", type: "Race participant" });
+    for (let k = 0; k < doc.participantsEach; k++) out.push({ number: ticketNo(doc, "participantStart", seq++), name: p.name, email: p.email, phone: p.phone || "", source: "participant", type: "Race participant" });
   }
   seq = 0;
   for (const m of doc.manual) {
-    for (let k = 0; k < m.count; k++) out.push({ number: "M" + pad(++seq), name: m.name, email: m.email, phone: "", source: "manual", type: "Added by hand" });
+    for (let k = 0; k < m.count; k++) out.push({ number: ticketNo(doc, "manualStart", seq++), name: m.name, email: m.email, phone: "", source: "manual", type: "Added by hand" });
   }
   for (const sale of doc.sales || []) {
     if (sale.voided) continue;
@@ -158,22 +174,12 @@ export function assignPrize(doc, drawId, prizeId) {
 }
 
 /* ---------------- Public snapshot (no emails) ---------------- */
-function sample(arr, n) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0 && a.length - i <= n; i--) {
-    const j = randomInt(i + 1);
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a.slice(-n);
-}
-
 export function screenSnapshot(doc) {
   const entries = buildEntries(doc);
   const eligible = eligibleEntries(doc, entries);
   const winners = new Map(doc.draws.filter((d) => d.status === "won" && d.prizeId).map((d) => [d.prizeId, d]));
   const cur = doc.draws.find((d) => d.id === doc.current) || null;
   const prizeOf = (id) => doc.prizes.find((p) => p.id === id) || {};
-  const reelFrom = eligible.length ? eligible : entries;
   return {
     title: doc.title,
     live: !!doc.live,
@@ -184,7 +190,7 @@ export function screenSnapshot(doc) {
     people: new Set(entries.map(personKey)).size,
     prizes: doc.prizes.map((p) => {
       const w = winners.get(p.id);
-      return { id: p.id, name: p.name, detail: p.detail, image: p.image, winner: w ? { name: w.name, number: w.number } : null };
+      return { id: p.id, name: p.name, detail: p.detail, image: p.image, winner: w ? { number: w.number } : null };
     }),
     next: (() => { const p = nextPrize(doc); return p ? { id: p.id, name: p.name, detail: p.detail, image: p.image } : null; })(),
     current: cur
@@ -194,11 +200,11 @@ export function screenSnapshot(doc) {
           status: cur.status,
           choice: !!cur.choice,
           prize: cur.prizeId ? { id: cur.prizeId, name: cur.prizeName, detail: prizeOf(cur.prizeId).detail || "", image: prizeOf(cur.prizeId).image || "" } : null,
-          winner: { name: cur.name, number: cur.number, source: cur.source },
-          // Names that fly past on the reel before it lands on the winner.
-          reel: sample(reelFrom.filter((e) => e.number !== cur.number), REEL_SIZE).map((e) => ({ number: e.number, name: e.name })),
+          // Only the ticket number goes on the public screen; names stay on the staff page.
+          winner: { number: cur.number, source: cur.source },
         }
       : null,
+    prefix: numbering(doc).prefix,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -260,10 +266,18 @@ export function salePrice(cfg, count) {
   return Math.round(count * (Number(cfg.price) || 0) * 100) / 100;
 }
 
-export function createSale(doc, { name, phone, email, count, payment, amount }) {
+export function createSale(doc, { id, name, phone, email, count, payment, amount, checkNo, stripe, contactId, station }) {
+  const n = numbering(doc);
+  const last = Number(n.saleStart) + doc.saleSeq + count - 1;
+  const ceiling = [Number(n.participantStart), Number(n.manualStart)].filter((b) => b > Number(n.saleStart)).sort((a, b) => a - b)[0] ?? 10000;
+  if (last >= ceiling) throw new HttpError(409, `Sold ticket numbers have reached ${n.prefix}${pad(ceiling)}, where the next block starts. Change the numbering on the staff page (Raffle › Ticket numbers).`);
   const numbers = [];
-  for (let i = 0; i < count; i++) numbers.push("S" + pad(++doc.saleSeq));
-  const sale = { id: randomUUID(), numbers, name, phone, email, count, payment, amount, at: new Date().toISOString(), voided: false, sms: phone ? { status: "pending" } : { status: "none" } };
+  for (let i = 0; i < count; i++) numbers.push(ticketNo(doc, "saleStart", doc.saleSeq++));
+  const sale = { id: id || randomUUID(), numbers, name, phone, email, count, payment, amount, at: new Date().toISOString(), voided: false, sms: phone ? { status: "pending" } : { status: "none" } };
+  if (checkNo) sale.checkNo = checkNo;
+  if (stripe) sale.stripe = stripe;
+  if (contactId) sale.contactId = contactId;
+  if (station) sale.station = station;
   doc.sales.push(sale);
   return sale;
 }
@@ -275,7 +289,9 @@ export function salesSummary(doc) {
     sales: live.length,
     tickets: sum(live, (x) => x.count),
     cash: sum(live.filter((x) => x.payment === "cash"), (x) => x.amount),
+    check: sum(live.filter((x) => x.payment === "check"), (x) => x.amount),
     card: sum(live.filter((x) => x.payment === "card"), (x) => x.amount),
+    stripe: sum(live.filter((x) => x.payment === "card" && x.stripe?.pi), (x) => x.amount),
     voided: (doc.sales || []).length - live.length,
   };
 }
@@ -304,4 +320,45 @@ export function smsBody(doc, { name, numbers }) {
 
 export function logSms(doc, entry) {
   doc.smsLog = [{ at: new Date().toISOString(), ...entry }, ...(doc.smsLog || [])].slice(0, 300);
+}
+
+/* ---------------- Recording sales in Givebutter ---------------- */
+export function numberRange(numbers) {
+  return numbers.length > 2 ? `${numbers[0]}–${numbers[numbers.length - 1]}` : numbers.join(", ");
+}
+
+// Body for POST /v1/transactions. external_id makes the sale identifiable (and lets us
+// check before re-sending); the internal note carries the ticket numbers.
+export function gbTransactionBody(doc, sale) {
+  const cfg = { ...EMPTY.gbRecord, ...(doc.gbRecord || {}) };
+  const parts = String(sale.name || "").trim().split(/\s+/);
+  const first = parts.shift() || "Raffle";
+  const last = parts.join(" ") || "Buyer";
+  const body = {
+    amount: Number(sale.amount || 0).toFixed(2),
+    method: ["card", "check"].includes(sale.payment) ? sale.payment : "cash",
+    transacted_at: sale.at,
+    timezone: cfg.timezone,
+    first_name: first,
+    last_name: last,
+    external_id: "srs-raffle-" + sale.id,
+    external_label: "SRS raffle sale",
+    internal_note: `Raffle tickets ${numberRange(sale.numbers)} (${sale.count}). Raffle ticket purchase, not a tax-deductible donation.` +
+      (sale.checkNo ? ` Check #${sale.checkNo}.` : "") +
+      (sale.stripe?.pi ? ` Paid by card through Stripe (${[sale.stripe.brand, sale.stripe.last4 && "…" + sale.stripe.last4].filter(Boolean).join(" ")}, ${sale.stripe.pi}).` : sale.payment === "card" ? " Card charged outside the Sell page." : "") +
+      " Recorded by the raffle Sell page.",
+  };
+  if (sale.contactId) body.contact_id = /^\d+$/.test(sale.contactId) ? Number(sale.contactId) : sale.contactId;
+  if (sale.email) body.email = sale.email;
+  else if (cfg.fallbackEmail) body.email = cfg.fallbackEmail;
+  if (sale.phone) body.phone = sale.phone;
+  if (cfg.campaignCode) body.campaign_code = cfg.campaignCode;
+  return body;
+}
+
+export function shouldRecord(doc, sale) {
+  const cfg = { ...EMPTY.gbRecord, ...(doc.gbRecord || {}) };
+  if (!cfg.enabled || sale.voided) return false;
+  if (sale.payment === "card" && !cfg.recordCard) return false;
+  return !(sale.gb && sale.gb.status === "recorded");
 }

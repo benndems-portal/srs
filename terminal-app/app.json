@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "SRS Card Terminal",
+    "slug": "srs-card-terminal",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.legalconversioncenter.srscardterminal",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSBluetoothAlwaysUsageDescription": "Connects to the Stripe card reader to take raffle ticket payments.",
+        "NSLocationWhenInUseUsageDescription": "Stripe requires location access to take card payments with a card reader."
+      }
+    },
+    "android": {
+      "package": "com.legalconversioncenter.srscardterminal",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b1020",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "plugins": [
+      [
+        "@stripe/stripe-terminal-react-native",
+        {
+          "bluetoothBackgroundMode": true,
+          "locationWhenInUsePermission": "Stripe requires location access to take card payments with a card reader.",
+          "bluetoothPeripheralPermission": "Connects to the Stripe card reader to take raffle ticket payments.",
+          "bluetoothAlwaysUsagePermission": "Connects to the Stripe card reader to take raffle ticket payments."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Stripe requires location access to take card payments with a card reader."
+        }
+      ]
+    ]
+  }
+}

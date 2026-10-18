@@ -102,6 +102,8 @@ Behavior:
    - `GIVEBUTTER_API_KEY`: your Givebutter API key
    - `ADMIN_PASSWORD`: the password staff use on `/admin`
    - `WEBHOOK_SECRET`: the shared secret your bid webhook sends (for Givebutter webhooks, its signing secret)
+   - `STRIPE_SECRET_KEY`: your Stripe secret key, for raffle card payments on the M2 readers (start with `sk_test_…`, switch to `sk_live_…` for the event)
+   - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`: texting ticket numbers
 4. **Redeploy**: go to **Deploys › Trigger deploy**. Environment variables only apply after a deploy.
 5. Open `https://YOUR-SITE.netlify.app/admin`, sign in, and work through these steps:
    - **Settings › Live bids from Givebutter**: enter `61023` and click **Save & sync now**. All 13 items appear with their current bids.
@@ -119,15 +121,18 @@ Staff run the raffle from **/admin › Raffle**. Entries come from three places,
 | Source | Numbers | How to load |
 |---|---|---|
 | Givebutter raffle tickets | Givebutter's own, e.g. `A1042` | **Pull tickets from Givebutter** (API), or upload the Tickets export CSV (Givebutter › Tickets › filter to this campaign › Export) |
-| Race participants | `R0001`, `R0002`, … | Upload a CSV of runners. Each gets **2 entries** (changeable). Columns: Name *or* First name + Last name, optional Email and Bib. A plain list of names also works. |
-| Extra entries (cash sales, etc.) | `M0001`, `M0002`, … | Type a name and how many entries |
+| Race participants | `20265001`, `20265002`, … | Upload a CSV of runners. Each gets **2 entries** (changeable). Columns: Name *or* First name + Last name, optional Email and Bib. A plain list of names also works. |
+| Tickets sold at the event (`/sell`) | `20260001`, `20260002`, … | Sold on the Sell page (below) |
+| Extra entries (sponsors, volunteers) | `20269001`, `20269002`, … | Type a name and how many entries |
+
+**Ticket numbers** are 8 digits: the year, then 4 digits, with a separate block for each kind of entry so numbers never overlap. Change the prefix or the blocks under **/admin › Raffle › Ticket numbers** (the prefix and the sold-ticket start lock once the first ticket is sold).
 
 After pulling tickets, the **ticket type** table sets how many raffle entries each ticket type is worth. Types with "raffle" in the name start at 1 and everything else starts at 0, so race registrations or event admission sold as tickets don't count unless you change them.
 
 **On draw day**
 1. Add the prizes in the order you'll draw them, then click **Save prizes**.
 2. Tick **Show the raffle on all display screens**. Every screen showing the auction switches to `/raffle` within a few seconds. You can also open `/raffle` directly on any screen.
-3. Click **Draw winner**. The server picks a random entry (Node's `crypto.randomInt`), and every screen spins the reel and lands on it about 8 seconds later, with confetti and an optional sound effect (press **S** on the screen, or click it once to allow sound).
+3. Click **Draw winner**. The server picks a random entry (Node's `crypto.randomInt`). Every screen then shows the winning number on eight digit drums: **2026** locks in within about 2 seconds, then each of the last four digits spins a little longer than the one before, the last one crawling into place at about 10 seconds. Confetti and an optional sound effect follow (press **S** on the screen, or click it once to allow sound). **Names are never shown on the screen**, only the ticket number; the winner's name is on the staff page.
 4. If the winner isn't present, click **Winner not here: redraw this prize**. Their winning entry stays out of the pool and the same prize is drawn again. **Undo** is for mistakes: it deletes the draw and puts the entry back.
 5. Untick the checkbox to send the screens back to the auction.
 
@@ -135,24 +140,46 @@ After pulling tickets, the **ticket type** table sets how many raffle entries ea
 
 ### Selling tickets at the event (`/sell`)
 
-The Sell page is for volunteers on a laptop or tablet, and it uses the staff password. For each sale they enter a name, a mobile number, a quantity (1, or a bundle button), and cash or card. Card payments are charged in Givebutter's app or card reader first; the Sell page only records them. They then tap **Sell & print**. The app:
-- assigns permanent numbers **S0001, S0002, …** that go straight into the drawing,
-- prints one receipt slip per sale (event name, buyer, all their numbers, drawing info, footer),
-- texts the numbers to the buyer's phone.
+The Sell page is for volunteers on a laptop, and it uses the staff password. It is built to be fast and keyboard-driven:
 
-The page also has a running cash/card total, a search box, **Reprint**, **Text again** (which can fix a mistyped number), and **Void** (which removes the numbers from the drawing; refund the money separately). Set the price, bundles ("3 for 25, 10 for 75"), slip text and the text message under **/admin › Raffle › Selling at the event & texting numbers**. **Download sales CSV** gives you the cash/card reconciliation.
+1. **Find the buyer.** Start typing their **phone number** (or their **last name**, or "last first"). Matches come up instantly from your Givebutter contacts and from people who already bought today; **↑/↓** and **Enter** pick one, or **Enter** on "+ New buyer" to fill in what you typed. Name and phone are filled in and can still be edited.
+2. **Pick a quantity** (1 or a bundle button, **←/→** to move, or type another number) and check the total.
+3. **Take payment:** **Cash (F1)**, **Check (F2)** (type the check number, optional, then Enter) or **Card (F3)**.
+   - Card sends the charge to the **SRS Card Terminal** iPhone app paired with a Stripe Reader M2 (see below). The laptop shows "Tap, insert or swipe on Table 1 iPhone", then "Approving…". When Stripe approves it, the sale is created on its own. **Cancel card payment** stops it; if the card had already gone through, the sale is kept.
+   - **Card charged another way…** records a card payment taken outside the app (for example Tap to Pay in the Stripe Dashboard app), as a backup.
 
-**Receipt printer.** Any 80 mm thermal printer with an auto-cutter and a Mac/Windows driver works, for example the Epson TM-m30III or the Star TSP143IV (USB). Set it as the laptop's default printer, choose the 80 mm roll paper size, and turn on the driver's paper-saving/auto-cut option. To print with no dialog, start Chrome with `--kiosk-printing` (Mac: `open -a "Google Chrome" --args --kiosk-printing`). The slip sizes its own page to its contents.
+The sale then gets permanent numbers (**20260001, 20260002, …**) that go straight into the drawing, prints one receipt slip and texts the numbers to the buyer. **Enter** starts the next buyer.
+
+The page also shows running cash/check/card totals and which card terminals are online, plus a search box, **Reprint**, **Text again** (which can fix a mistyped number) and **Void** (removes the numbers from the drawing; a card sale taken through Stripe is refunded automatically, cash and checks you hand back). Set the price, bundles ("3 for 25, 10 for 75"), slip text and the text message under **/admin › Raffle › Selling at the event & texting numbers**. **Download sales CSV** gives you the reconciliation, including check numbers and Stripe payment IDs.
+
+**Buyer lookup.** Under **/admin › Raffle › Buyer lookup**, click **Pull contacts from Givebutter** a day or two before and again on race morning. The Sell page downloads the list once and searches it in the browser, so it stays instant even if Givebutter is slow. Buyers picked from Givebutter keep their contact ID, so the transaction lands on the right person later.
+
+**Card payments (Stripe Reader M2).** The M2 is a Bluetooth reader that only works through a phone app, so the laptop and the iPhone work as a pair through the website:
+- Add `STRIPE_SECRET_KEY` in Netlify and redeploy. The server creates a Stripe Terminal location for the race automatically (or set `STRIPE_TERMINAL_LOCATION=tml_…` to use one of yours).
+- Install **SRS Card Terminal** on each iPhone from TestFlight (build steps in `terminal-app/README.md`), enter the site address, the staff password and a name like "Table 1", and connect the M2. Keep the app open on the table.
+- With two tables, choose **Cards go to** on each laptop so its charges go to its own iPhone. Otherwise the first free terminal takes the charge.
+- The website never sees card details, and a sale is only created after the server checks with Stripe that the payment succeeded, so a phone can't fake an approval. If the phone loses signal right after the tap, the laptop asks Stripe itself after a few seconds.
+- Practice with a `sk_test_…` key and the app's **Simulated reader** switch, then put the live key in Netlify for the event. Test mode shows on both the Sell page and the app.
+
+**Receipt printer (Star TSP100).** The TSP100 family (TSP143) prints on 80 mm paper, 72 mm wide, which is what the slip is designed for. A USB model (TSP143IIIU, TSP143IIU or TSP143IV) is the simplest to use with a laptop: install Star's macOS (CUPS) driver for that model, set the paper to **80 mm × receipt**, set it as the default printer, and turn on the driver's auto-cut after each page. To print with no dialog, start Chrome with `--kiosk-printing` (Mac: `open -a "Google Chrome" --args --kiosk-printing`). The slip sizes its own page to its contents. When buying used, check the label for the exact model and that it's the 80 mm version, and look up the driver on Star's site before you pay.
+
+### Sending sales to Givebutter (after the race)
+
+Nothing goes to Givebutter during the event, so the line never waits on it. Afterwards, open **/admin › Raffle › Send sales to Givebutter**, pick the campaign (**Load campaigns**), and click **Send N sales to Givebutter**. Each sale becomes a transaction through the API's **Create a transaction** (`POST /v1/transactions`): the amount, method (cash, check or card), the sale time, the buyer's name/phone/email (and their Givebutter contact if they were looked up), and an internal note like "Raffle tickets 20260004–20260006 (3). Raffle ticket purchase, not a tax-deductible donation. Check #1042." Card sales note the card and the Stripe payment ID; the money itself settles in your Stripe account, not Givebutter.
+- **Create a $1 test transaction** shows exactly where sales land; delete it afterwards.
+- Sales that fail stay marked and are retried the next time you click. If Givebutter insists on an email for buyers who gave none, fill in **Email for buyers who don't give one**.
+- Voided sales aren't sent. If a sale is voided after it was sent, its Givebutter note is rewritten to "VOIDED" (the API can't delete a transaction); the staff page counts these so you can delete them in Givebutter.
+- Tick **Send each sale right away** if you ever want the old behavior.
 
 ### Texting ticket numbers (Twilio)
 
 Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` in Netlify. Use the Messaging Service attached to your approved 10DLC campaign; `TWILIO_FROM=+1…` works instead. Then redeploy. **Send test text** checks the setup.
-- Sales on `/sell` are texted immediately.
+- Sales on `/sell` are texted immediately (card sales once Stripe approves them).
 - Givebutter buyers and runners are texted from the staff page with **Text ticket numbers now**. It groups every entry by phone number (one text per person, listing all their numbers), uses the phone on the Givebutter ticket or the runners' CSV *Phone/Mobile* column, and texts each number only once. Pull tickets again after more sales and click it again: only the new numbers go out.
 - Failed texts (bad number, someone who replied STOP) show in **Show text log**. **Retry failed texts** puts them back in the queue.
 - The message template must include `{numbers}`. Keep "Reply STOP to opt out" in it.
 
-Rules: a winning entry leaves the pool, but the winner's other entries stay in, so one person can win more than one prize. Names appear in full on the raffle screen, and emails never leave the admin page. **Download results CSV** gives you the winners with emails for follow-up. **Download all entries CSV** lists every entry number, which is handy for posting or for checking the pool.
+Rules: a winning entry leaves the pool, but the winner's other entries stay in, so one person can win more than one prize. Only ticket numbers appear on the raffle screen; names, emails and phones never leave the staff pages. **Download results CSV** gives you the winners with emails for follow-up. **Download all entries CSV** lists every entry number, which is handy for posting or for checking the pool.
 
 Practice beforehand, then use **Reset raffle › Clear draws** to wipe the practice winners but keep the tickets and participants.
 
@@ -188,6 +215,8 @@ curl -X POST localhost:8888/api/webhook -H 'Signature: test-secret' -H 'content-
   -d '{"event":"bid.created","data":{"id":"t1","amount":500,"bidder":{"name":"Sarah Ramsey"},"item":{"number":"1","name":"Test Item"}}}'
 MOCK_GIVEBUTTER=1 ADMIN_PASSWORD=test node scripts/local-server.mjs     # with fake Givebutter data
 MOCK_GB_FEED=./my-fixture.mjs ADMIN_PASSWORD=test node scripts/local-server.mjs  # replay a saved auction feed
+MOCK_GIVEBUTTER=1 MOCK_TWILIO=1 MOCK_STRIPE=1 node scripts/local-server.mjs     # fake Givebutter, Twilio and Stripe
+#   with MOCK_STRIPE, POST /__mock/stripe/approve {"pi":"pi_mock_1"} plays a customer tapping their card
 ```
 Then open http://localhost:8888 and http://localhost:8888/admin. For a full Netlify emulation, use `npx netlify dev`.
 
@@ -207,7 +236,13 @@ public/raffle.html, raffle.js, raffle.css   raffle drawing screen
 public/sell.html, sell.js     volunteer ticket sales + 80 mm receipt slip
 netlify/lib/sms.mjs           Twilio texting
 netlify/functions/raffle.mjs  GET /api/raffle  (public raffle screen data, no emails)
-netlify/lib/raffle.mjs        entries, draws, Givebutter ticket import
+netlify/lib/raffle.mjs        entries, draws, numbering, Givebutter ticket import
+netlify/lib/sales.mjs         creating a sale (numbers, text, Givebutter transaction)
+netlify/lib/lookup.mjs        Givebutter contacts copy for the Sell page lookup
+netlify/lib/stripe.mjs        Stripe API client + card request queue
+netlify/lib/cards.mjs         finishing/canceling card requests (checks Stripe before a sale)
+netlify/functions/terminal.mjs POST /api/terminal (the iPhone card terminal app)
+terminal-app/                 SRS Card Terminal iPhone app (Expo + Stripe Terminal, Stripe Reader M2)
 scripts/local-server.mjs      local preview without Netlify
 ```
 

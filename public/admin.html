@@ -222,7 +222,7 @@
 
           <div class="card">
             <h2>Race participants</h2>
-            <p class="muted" style="margin-top:0">Upload a CSV of runners. Each runner gets free entries numbered <b>R0001</b>, <b>R0002</b>, and so on. Recognized columns: Name (or First name + Last name), Email, Phone/Mobile, Bib. A file with only names and no header row also works.</p>
+            <p class="muted" style="margin-top:0">Upload a CSV of runners. Each runner gets free entries numbered from <b class="numPart">2026 5001</b> up. Recognized columns: Name (or First name + Last name), Email, Phone/Mobile, Bib. A file with only names and no header row also works.</p>
             <div class="row">
               <input type="file" id="rPartFile" accept=".csv,text/csv,.txt" style="flex:1;min-width:200px">
               <div><label style="margin:0">Entries each</label><input id="rEach" type="number" min="0" max="20" value="2" style="width:90px"></div>
@@ -236,7 +236,7 @@
 
           <div class="card">
             <h2>Selling at the event &amp; texting numbers</h2>
-            <p class="muted" style="margin-top:0">Volunteers sell on the <a href="/sell" target="_blank" rel="noopener"><b>Sell page</b></a>: name, phone, quantity, cash or card. It prints a receipt slip and texts the numbers (<b>S0001</b>, <b>S0002</b>, and so on). Every sale goes straight into the drawing.</p>
+            <p class="muted" style="margin-top:0">Volunteers sell on the <a href="/sell" target="_blank" rel="noopener"><b>Sell page</b></a>: look the buyer up by phone or last name, pick a quantity, then cash, check or card. It prints a receipt slip and texts the numbers (<b class="numSale">2026 0001</b>, <b>2026 0002</b>, and so on). Every sale goes straight into the drawing.</p>
             <div class="stats" id="rSalesStats" style="margin-bottom:12px"></div>
             <div class="grid">
               <div><label>Price per ticket ($)</label><input id="rPrice" inputmode="decimal"></div>
@@ -247,6 +247,44 @@
             </div>
             <div class="row" style="margin-top:12px"><button class="btn" type="button" id="rSalesSave">Save</button><button class="btn ghost" type="button" id="rSalesCsv">Download sales CSV</button></div>
             <div id="rSalesMsg"></div>
+
+            <h3 style="margin-top:22px">Ticket numbers</h3>
+            <p class="dim" style="margin-top:0">Every number is 8 digits: the prefix plus 4 digits. Each kind of entry has its own block so numbers never overlap. The raffle screen spins the prefix in quickly and slows down for the last 4 digits.</p>
+            <div class="grid">
+              <div><label>Prefix</label><input id="rNumPrefix" inputmode="numeric" maxlength="8"></div>
+              <div><label>Sold tickets start at</label><input id="rNumSale" inputmode="numeric"></div>
+              <div><label>Race participants start at</label><input id="rNumPart" inputmode="numeric"></div>
+              <div><label>Added by hand start at</label><input id="rNumMan" inputmode="numeric"></div>
+            </div>
+            <div class="row" style="margin-top:10px"><button class="btn ghost" type="button" id="rNumSave">Save numbering</button><span class="dim" id="rNumInfo"></span></div>
+            <div id="rNumMsg"></div>
+
+            <h3 style="margin-top:22px">Card payments (Stripe + iPhone card terminal)</h3>
+            <div id="rStripeInfo" class="dim"></div>
+            <div id="rTermList" class="dim" style="margin-top:6px"></div>
+            <div class="row" style="margin-top:8px"><button class="btn ghost sm" type="button" id="rTermRefresh">Refresh terminals</button></div>
+
+            <h3 style="margin-top:22px">Buyer lookup (Givebutter contacts)</h3>
+            <p class="dim" style="margin-top:0">The Sell page searches a copy of your Givebutter contacts by phone number or last name. Pull a fresh copy before the event (and again on race morning). People who already bought at the event are found too.</p>
+            <div class="row"><button class="btn" type="button" id="rLookupPull">Pull contacts from Givebutter</button><span class="dim" id="rLookupInfo"></span></div>
+            <div id="rLookupMsg"></div>
+
+            <h3 style="margin-top:22px">Send sales to Givebutter (after the race)</h3>
+            <p class="dim" style="margin-top:0">Each sale becomes a Givebutter transaction (cash, check or card) with the buyer's name, phone and email, and an internal note listing their ticket numbers, the check number or the Stripe payment. By default nothing is sent during the event: press the button below once sales are done.</p>
+            <div id="rGbRecWarn" class="msg err" hidden>GIVEBUTTER_API_KEY isn't set in Netlify, so sales are only kept here.</div>
+            <div class="winner" style="margin-top:6px">
+              <div id="rGbInfo2"></div>
+              <div class="row" style="margin-top:10px"><button class="btn" type="button" id="rGbPending" hidden></button><button class="btn ghost" type="button" id="rGbTest">Create a $1 test transaction</button></div>
+              <div id="rGbMsg"></div>
+            </div>
+            <label style="display:flex;gap:8px;align-items:center;color:var(--text);margin-top:10px"><input type="checkbox" id="rGbOn"> Sales can be sent to Givebutter</label>
+            <label style="display:flex;gap:8px;align-items:center;color:var(--text);margin-top:6px"><input type="checkbox" id="rGbAuto"> Send each sale right away instead of in a batch after the race</label>
+            <div class="grid" style="margin-top:8px">
+              <div class="span2"><label>Campaign</label><div class="row"><select id="rGbCampSel" style="flex:1"><option value="">— pick after loading —</option></select><button class="btn ghost" type="button" id="rGbCampLoad">Load campaigns</button></div></div>
+              <div><label>Or campaign code</label><input id="rGbCode" placeholder="e.g. SRS5K26"></div>
+              <div class="span2"><label>Email for buyers who don't give one <span class="dim">(only if Givebutter insists on an email)</span></label><input id="rGbFallback" type="email" placeholder="e.g. raffle@yourorg.org"></div>
+            </div>
+            <div class="row" style="margin-top:10px"><button class="btn ghost" type="button" id="rGbSave">Save Givebutter settings</button></div>
 
             <h3 style="margin-top:22px">Texting (Twilio)</h3>
             <div id="rTwilio" class="dim"></div>
@@ -263,7 +301,7 @@
 
           <div class="card">
             <h2>Free entries <span class="dim" style="font-weight:500">(optional)</span></h2>
-            <p class="muted" style="margin-top:0">For anyone who should get entries without a sale, such as sponsors or volunteers. They're numbered <b>M0001</b>, <b>M0002</b>, and so on. Use the Sell page for paid tickets.</p>
+            <p class="muted" style="margin-top:0">For anyone who should get entries without a sale, such as sponsors or volunteers. They're numbered from <b class="numMan">2026 9001</b> up. Use the Sell page for paid tickets.</p>
             <form id="rManForm" class="row">
               <input name="name" placeholder="Name" style="flex:2;min-width:160px" required>
               <input name="email" placeholder="Email (optional)" style="flex:2;min-width:160px">
