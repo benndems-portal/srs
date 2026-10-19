@@ -20,6 +20,9 @@
     set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
   };
   // Identifies this laptop, so a new card charge replaces only this laptop's previous one.
+  // Inside the SRS Card Terminal iPhone app, the app tells the page which phone it is and whether its reader is ready.
+  const APP = window.SRS_APP || null;
+  const coarse = matchMedia("(pointer: coarse)").matches;
   const station = pref.get("sellStation", "") || (() => { const v = "st-" + Math.random().toString(36).slice(2, 8); pref.set("sellStation", v); return v; })();
 
   let password = store.get("auctionPw") || "";
@@ -35,6 +38,11 @@
   let card = null; // { id, timer, startedAt }
   let terminals = [];
   let stripeOn = false;
+  let printers = [];
+  let printWaiting = 0;
+  let printOn = pref.get("sellPrintOn", APP || coarse ? "station" : "here"); // "here" | "station"
+  if (APP) { document.body.classList.add("in-app"); if (APP.terminalId) pref.set("sellTerminal", APP.terminalId); }
+  const toNative = (m) => { try { window.ReactNativeWebView?.postMessage(JSON.stringify(m)); } catch {} };
 
   async function api(action, params = {}) {
     const res = await fetch("/api/admin", { method: "POST", headers: { "content-type": "application/json", "x-admin-password": password }, body: JSON.stringify({ action, ...params }) });
@@ -66,6 +74,7 @@
     const s = r.summary;
     $("totals").innerHTML = `<span><b>${s.tickets}</b> tickets</span><span><b>${s.sales}</b> sales</span><span>Cash <b>${fmt$(s.cash)}</b></span><span>Check <b>${fmt$(s.check || 0)}</b></span><span>Card <b>${fmt$(s.card)}</b></span>`;
     setTerminals(r.terminals || []);
+    printers = r.printers || []; printWaiting = r.printWaiting || 0; showPrinter();
     if (r.stripe?.configured && r.stripe.mode === "test") $("hdr").textContent += " · STRIPE TEST MODE";
     renderQty();
     renderSales();
@@ -92,6 +101,15 @@
     sel.value = want;
   }
   $("optTerminal").onchange = (e) => pref.set("sellTerminal", e.target.value);
+
+  function showPrinter() {
+    const el = $("printState");
+    if (printOn !== "station") { el.innerHTML = ""; return; }
+    el.classList.toggle("none", !printers.length);
+    el.innerHTML = `Printer: <b>●</b> ${printers.length ? printers.map((p) => esc(p.name)).join(", ") : "station not open"}${printWaiting ? ` · ${printWaiting} waiting` : ""}`;
+  }
+  $("optPrintOn").value = printOn;
+  $("optPrintOn").onchange = (e) => { printOn = e.target.value; pref.set("sellPrintOn", printOn); showPrinter(); };
 
   /* ---------- Step 1: lookup ---------- */
   // Earlier buyers today, newest first, one per phone (or name if no phone).
@@ -243,7 +261,10 @@
     if (!ready()) return;
     if (kind === "cash") return sell("cash");
     if (kind === "check") { $("checkRow").hidden = false; $("fCheck").value = ""; $("fCheck").focus(); return; }
-    if (kind === "card") return startCard();
+    if (kind === "card") {
+      if (APP && !APP.readerReady) { msg("saleMsg", "The card reader isn't connected. Tap the reader bar at the top to connect it.", "err"); toNative({ type: "openReader" }); return; }
+      return startCard();
+    }
   }
   $("checkGo").onclick = () => sell("check", { checkNo: $("fCheck").value.trim() });
   $("checkBack").onclick = () => { $("checkRow").hidden = true; focusPay(); };
@@ -278,7 +299,7 @@
     if (!stripeOn) { msg("saleMsg", "Card payments aren't set up yet (STRIPE_SECRET_KEY in Netlify). Use “Card charged another way…” for now.", "err"); return; }
     busy = true; setPayDisabled(true);
     try {
-      const r = await api("cardStart", { ...draft("card"), terminal: $("optTerminal").value });
+      const r = await api("cardStart", { ...draft("card"), terminal: APP?.terminalId || $("optTerminal").value });
       setTerminals(r.terminals || terminals);
       card = { id: r.request.id, startedAt: Date.now() };
       $("payCard").hidden = true;
@@ -350,13 +371,14 @@
     $("dWho").textContent = `${sale.name} · ${sale.count} ticket${sale.count === 1 ? "" : "s"} · ${fmt$(sale.amount)} ${payLabel(sale)}`;
     $("dNums").innerHTML = sale.numbers.map((n) => `<span>${numHTML(n)}</span>`).join("");
     $("dSms").innerHTML = smsLine(sale);
+    $("dPrintMsg").innerHTML = "";
     if ($("optPrint").checked) printSlip(sale);
+    if (coarse) $("done").scrollIntoView({ behavior: "smooth", block: "start" });
     $("dNew").focus();
     load().catch(() => {});
   }
-  const payLabel = (x) => x.payment === "check" ? `check${x.checkNo ? " #" + x.checkNo : ""}` : x.payment === "card" && x.stripe?.last4 ? `${x.stripe.brand ? x.stripe.brand[0].toUpperCase() + x.stripe.brand.slice(1) : "card"} …${x.stripe.last4}` : x.payment;
-  // 20260427 -> 2026<b>0427</b> so the part that matters stands out.
-  const numHTML = (n) => (n.length === prefix.length + 4 && n.startsWith(prefix) ? `${esc(prefix)}<b>${esc(n.slice(prefix.length))}</b>` : esc(n));
+  const payLabel = SRSSlip.payLabel;
+  const numHTML = (n) => SRSSlip.numHTML(n, prefix);
 
   function smsLine(sale) {
     const st = sale.sms?.status;
@@ -375,36 +397,24 @@
     clearBuyer();
   }
   $("dNew").onclick = newSale;
-  $("dPrint").onclick = () => lastSale && printSlip(lastSale);
+  $("dPrint").onclick = () => lastSale && printSlip(lastSale, true);
   addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("done").hidden && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); newSale(); } });
   $("optPrint").checked = pref.get("sellAutoPrint", "1") === "1";
   $("optPrint").onchange = (e) => pref.set("sellAutoPrint", e.target.checked ? "1" : "0");
 
-  /* ---------- Slip (80 mm paper; Star TSP100 prints 72 mm wide) ---------- */
-  function printSlip(sale) {
-    const when = new Date(sale.at);
-    const one = sale.numbers.length === 1;
-    $("slip").innerHTML = `
-      <div class="ev">${esc(title)}</div>
-      <div class="banner">RAFFLE TICKET${one ? "" : "S"}</div>
-      <div class="meta"><span>${when.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</span><span>${when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
-      <div class="name">${esc(sale.name)}</div>
-      <div class="count">${sale.count} ticket${one ? "" : "s"} · ${fmt$(sale.amount)} ${esc(payLabel(sale))}</div>
-      <div class="nums${one ? " one" : ""}">${sale.numbers.map((n) => `<span>${numHTML(n)}</span>`).join("")}</div>
-      ${cfg.drawingInfo ? `<div class="info">${esc(cfg.drawingInfo)}</div>` : ""}
-      ${cfg.slipFooter ? `<div class="foot">${esc(cfg.slipFooter)}</div>` : ""}
-      ${sale.phone && sale.sms?.status === "sent" ? `<div class="ref">Numbers also texted to ${esc(sale.phonePretty)}</div>` : ""}
-      <div class="ref">Raffle ticket purchase · not tax-deductible</div>
-      <div class="cut">✂ - - - - - - - - - - - - - - -</div>`;
-    // Size the page to the slip so the receipt printer doesn't feed blank paper.
-    let st = document.getElementById("slipPage");
-    if (!st) { st = document.createElement("style"); st.id = "slipPage"; document.head.appendChild(st); }
-    const slip = $("slip");
-    slip.style.cssText = "display:block;position:absolute;left:-9999px;width:72mm";
-    const mm = Math.ceil(slip.getBoundingClientRect().height / (96 / 25.4)) + 12;
-    slip.style.cssText = "";
-    st.textContent = `@media print { @page { size: 80mm ${mm}mm; margin: 0; } }`;
-    setTimeout(() => window.print(), 50);
+  /* ---------- Slip: here (window.print) or on the print station laptop ---------- */
+  async function printSlip(sale, reprint = false) {
+    if (printOn !== "station") return SRSSlip.print(SRSSlip.html(sale, { title, prefix, cfg }));
+    try {
+      const r = await api("printSend", { saleId: sale.id, from: APP?.terminalName || "Sell page", reprint });
+      printers = r.printers; printWaiting = r.waiting; showPrinter();
+      const where = printers.length ? `Slip sent to ${printers.map((p) => p.name).join(", ")}.` : "Slip queued. It prints as soon as the print station (/print on the laptop) is open.";
+      if (!$("done").hidden) $("dPrintMsg").innerHTML = `<div class="msg ${printers.length ? "ok" : "warn"}">${esc(where)}</div>`;
+      else alert(where);
+    } catch (err) {
+      const m = "Couldn't send the slip to the printer: " + err.message;
+      if (!$("done").hidden) $("dPrintMsg").innerHTML = `<div class="msg err">${esc(m)}</div>`; else alert(m);
+    }
   }
 
   /* ---------- Recent sales ---------- */
@@ -429,7 +439,7 @@
     if (!li) return;
     const sale = sales.find((x) => x.id === li.dataset.id);
     try {
-      if (e.target.closest("[data-reprint]")) printSlip(sale);
+      if (e.target.closest("[data-reprint]")) printSlip(sale, true);
       if (e.target.closest("[data-resend]")) {
         const phone = prompt("Text the ticket numbers to:", sale.phonePretty || "");
         if (phone == null) return;
@@ -449,11 +459,14 @@
     } catch (err) { alert(err.message); }
   };
 
+  // Called by the iPhone app when its reader connects or disconnects.
+  window.srsSetReader = (ready, label) => { if (APP) { APP.readerReady = !!ready; APP.readerLabel = label || ""; } };
+
   async function start() {
     $("loginView").hidden = true;
     $("appView").hidden = false;
     await Promise.all([load(), loadContacts()]);
-    $("q").focus();
+    if (!coarse) $("q").focus();
   }
   setInterval(() => { if (password && !document.hidden && !card && $("find") !== document.activeElement) load().catch(() => {}); }, 15000);
   if (password) start().catch(() => signOut()); else signOut();

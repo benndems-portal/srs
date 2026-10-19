@@ -7,6 +7,7 @@
   <title>Sell Raffle Tickets</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="/slip.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root { --bg:#0b1020; --bg-2:#111831; --card:#161e3c; --line:rgba(255,255,255,.1); --text:#f4f1ea; --muted:#9aa3c0; --dim:#6d7699; --gold:#f2c14e; --green:#39d98a; --red:#ff5a6a; --r:12px; }
@@ -105,30 +106,29 @@
     .spinner { width: 44px; height: 44px; margin: 4px auto 10px; border-radius: 50%; border: 4px solid rgba(111,168,255,.25); border-top-color: #6fa8ff; animation: spin 0.9s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .done .nums span b, .sales .nums b { color: var(--text); }
+    /* Phones (and the iPhone app) */
+    body.in-app .no-app, body.in-app kbd { display: none !important; }
+    @media (pointer: coarse) { .paybig kbd, .no-touch { display: none; } }
+    @media (max-width: 600px) {
+      .wrap { padding: 12px; }
+      header.bar h1 { font-size: 16px; white-space: normal; flex-basis: 100%; }
+      .tot span { font-size: 12px; padding: 3px 9px; }
+      .card { padding: 14px; }
+      .opts select { font-size: 16px; } /* 16px+ stops iOS zooming into fields */
+      #q { font-size: 20px !important; padding: 14px; }
+      .paybig { gap: 8px; }
+      .paybig button { font-size: 18px; padding: 16px 4px 12px; }
+      .qty button { min-width: 64px; padding: 10px 6px; }
+      .qty button b { font-size: 20px; }
+      .done .nums span { font-size: 22px; padding: 6px 10px; }
+      .waiting .wbig { font-size: 34px; }
+      .sales .acts .btn.sm { padding: 8px 10px; }
+      .opts { gap: 10px; }
+      .buyer .row > div { flex-basis: 100%; }
+    }
+    body.in-app header.bar { position: static; }
     .pill.check { color: #c9a6ff; background: rgba(201,166,255,.14); }
 
-    /* ---------- The printed slip (80 mm receipt paper, ~72 mm printable) ---------- */
-    #slip { display: none; }
-    @media print {
-      @page { margin: 0; }
-      html, body { background: #fff !important; }
-      body > *:not(#slip) { display: none !important; }
-      #slip { display: block; width: 72mm; margin: 0 auto; padding: 3mm 0 6mm; color: #000; font: 11pt/1.3 Inter, Arial, sans-serif; }
-    }
-    #slip .ev { text-align: center; font-weight: 800; font-size: 13pt; line-height: 1.2; }
-    #slip .banner { margin: 2.5mm 0; background: #000; color: #fff; text-align: center; font-weight: 800; letter-spacing: .25em; font-size: 12pt; padding: 1.5mm 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    #slip .meta { display:flex; justify-content: space-between; font-size: 9pt; }
-    #slip .name { font-size: 13pt; font-weight: 800; margin: 2mm 0 1mm; }
-    #slip .count { font-size: 10pt; }
-    #slip .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 3mm; margin: 3mm 0; border-top: 0.4mm dashed #000; border-bottom: 0.4mm dashed #000; padding: 2.5mm 0; }
-    #slip .nums.one { grid-template-columns: 1fr; text-align: center; }
-    #slip .nums span { font: 600 15pt/1.15 "Courier New", monospace; letter-spacing: .02em; }
-    #slip .nums span b { font-weight: 900; }
-    #slip .nums.one span { font-size: 24pt; }
-    #slip .info { text-align: center; font-weight: 700; font-size: 10pt; }
-    #slip .foot { text-align: center; font-size: 9pt; margin-top: 2mm; }
-    #slip .ref { text-align: center; font-size: 8pt; margin-top: 2mm; }
-    #slip .cut { text-align: center; font-size: 8pt; margin-top: 4mm; letter-spacing: .15em; }
   </style>
 </head>
 <body>
@@ -149,7 +149,8 @@
       <h1 id="hdr">Sell raffle tickets</h1>
       <div class="tot" id="totals"></div>
       <span class="term" id="termState" title="Card terminal iPhones"></span>
-      <a class="btn ghost sm" href="/admin" target="_blank" rel="noopener">Staff page ↗</a>
+      <span class="term" id="printState" title="Print station"></span>
+      <a class="btn ghost sm no-app" href="/admin" target="_blank" rel="noopener">Staff page ↗</a>
     </div></header>
 
     <main class="wrap">
@@ -168,7 +169,7 @@
                 <div style="flex:2"><label for="fName">Name *</label><input id="fName" required placeholder="First and last name"></div>
                 <div><label for="fPhone">Mobile <span class="dim">(texts their numbers)</span></label><input id="fPhone" type="tel" inputmode="tel" placeholder="706-555-1234"></div>
               </div>
-              <div class="buyer-meta"><span id="buyerFrom" class="dim"></span><a href="#" id="addEmail" class="dim">+ email</a><a href="#" id="changeBuyer" class="dim">change buyer (Esc)</a></div>
+              <div class="buyer-meta"><span id="buyerFrom" class="dim"></span><a href="#" id="addEmail" class="dim">+ email</a><a href="#" id="changeBuyer" class="dim">change buyer<span class="no-touch"> (Esc)</span></a></div>
               <div id="emailWrap" hidden><label for="fEmail">Email <span class="dim">(optional)</span></label><input id="fEmail" type="email" placeholder="name@example.com"></div>
             </div>
           </section>
@@ -194,7 +195,8 @@
             <div id="saleMsg"></div>
             <div class="opts">
               <label><input type="checkbox" id="optPrint" checked> Print slip automatically</label>
-              <label>Cards go to <select id="optTerminal"><option value="">any card terminal</option></select></label>
+              <label>Slips print on <select id="optPrintOn"><option value="here">this computer</option><option value="station">the print station</option></select></label>
+              <label class="no-app">Cards go to <select id="optTerminal"><option value="">any card terminal</option></select></label>
               <a href="#" id="manualCard" class="dim">Card charged another way…</a>
             </div>
           </section>
@@ -216,6 +218,7 @@
             <div class="who" id="dWho"></div>
             <div class="nums" id="dNums"></div>
             <div id="dSms"></div>
+            <div id="dPrintMsg"></div>
             <div class="row" style="justify-content:center;margin-top:12px">
               <button class="btn ghost" id="dPrint">🖨 Print again</button>
               <button class="btn" id="dNew">Next buyer ↵</button>
@@ -233,6 +236,7 @@
   </div>
 
   <div id="slip"></div>
+  <script src="/slip.js"></script>
   <script src="/sell.js"></script>
 </body>
 </html>

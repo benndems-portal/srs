@@ -163,6 +163,14 @@ The page also shows running cash/check/card totals and which card terminals are 
 
 **Receipt printer (Star TSP100).** The TSP100 family (TSP143) prints on 80 mm paper, 72 mm wide, which is what the slip is designed for. A USB model (TSP143IIIU, TSP143IIU or TSP143IV) is the simplest to use with a laptop: install Star's macOS (CUPS) driver for that model, set the paper to **80 mm × receipt**, set it as the default printer, and turn on the driver's auto-cut after each page. To print with no dialog, start Chrome with `--kiosk-printing` (Mac: `open -a "Google Chrome" --args --kiosk-printing`). The slip sizes its own page to its contents. When buying used, check the label for the exact model and that it's the 80 mm version, and look up the driver on Star's site before you pay.
 
+**Selling from a phone (everything except printing).** The **SRS Card Terminal** app (version 1.1+) has three tabs: **Sell** (this same Sell page, sized for a phone), **Staff** (the /admin page: bids, raffle draw, settings) and **Card reader**. It signs the pages in with the staff password from its settings. On the phone's Sell tab, **Card** always goes to that phone's own M2; the reader bar at the top shows whether it's connected. Slips print on the laptop:
+
+1. On the laptop with the USB TSP100, open **/print** (the print station) and sign in. Do the one-time **Set up silent printing** steps on that page, so slips print with no dialog.
+2. Phones (and any Sell page with **Slips print on: the print station**) send each slip there. The phone shows "Slip sent to Laptop printer", and the Sell page header shows **Printer ●** when the station is open. If the station is closed, slips wait in the queue and print as soon as it opens. **Print again** and **Reprint** work the same way.
+3. A laptop running /sell prints on itself by default, as before. Phones and tablets default to the print station.
+
+Keep the /print window open and in front, with the laptop plugged in and sleep turned off.
+
 ### Sending sales to Givebutter (after the race)
 
 Nothing goes to Givebutter during the event, so the line never waits on it. Afterwards, open **/admin › Raffle › Send sales to Givebutter**, pick the campaign (**Load campaigns**), and click **Send N sales to Givebutter**. Each sale becomes a transaction through the API's **Create a transaction** (`POST /v1/transactions`): the amount, method (cash, check or card), the sale time, the buyer's name/phone/email (and their Givebutter contact if they were looked up), and an internal note like "Raffle tickets 20260004–20260006 (3). Raffle ticket purchase, not a tax-deductible donation. Check #1042." Card sales note the card and the Stripe payment ID; the money itself settles in your Stripe account, not Givebutter.

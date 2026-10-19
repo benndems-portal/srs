@@ -1,6 +1,8 @@
 # SRS Card Terminal (iPhone + Stripe Reader M2)
 
-A small iPhone app that turns a phone and a Stripe Reader M2 into the card reader for the raffle **Sell page**. The laptop rings up the sale; this app picks up the charge within a second, the buyer taps, inserts or swipes, Stripe approves it, and the laptop prints the slip and texts the ticket numbers.
+An iPhone app for running a raffle table from a phone: the **Sell** page, the **Staff** page and a Stripe Reader M2 for cards, in one app. Slips print on the laptop with the USB receipt printer, which keeps the website's **/print** page open (the print station).
+
+A laptop can still ring up sales and send cards to this phone, as before: the app picks up the charge within a second, the buyer taps, inserts or swipes, and Stripe approves it.
 
 The app only ever talks to your website (`/api/terminal`, with the staff password) and to Stripe through Stripe's own SDK. Card details never touch the website.
 
@@ -35,7 +37,7 @@ After Apple finishes processing (usually 10 to 30 minutes, you get an email):
 2. Under **Internal Testing**, create a group and add yourself and anyone else who will run a table. Internal testers must be users on your App Store Connect team (**Users and Access**); up to 100, and no App Review is needed.
 3. On each iPhone, install Apple's **TestFlight** app, accept the invite, and install **SRS Card Terminal**.
 
-TestFlight builds expire after 90 days, which is plenty for the race. For a new version, run the `build` and `submit` commands again.
+TestFlight builds expire after 90 days, which is plenty for the race. For a new version, run the `build` and `submit` commands again (the build number goes up on its own). Version 1.1 added the Sell and Staff tabs and the `react-native-webview` package, so run `npm install` first.
 
 ## Using it
 
@@ -43,8 +45,12 @@ TestFlight builds expire after 90 days, which is plenty for the race. For a new 
 2. Open **SRS Card Terminal**. Enter the website address (e.g. `https://your-site.netlify.app`), the staff password, and a name such as "Table 1". Tap **Test connection**, then **Save**.
 3. Allow Bluetooth and location when asked (Stripe requires location for card readers).
 4. Press the M2's button until its lights blink. Tap it in the list to connect. Next time the app reconnects to the same reader on its own.
-5. The screen says **Ready**. Leave the app open (it keeps the screen awake). On the laptop, the Sell page header shows the terminal as online.
-6. When a volunteer presses **Card (F3)**, the phone shows the amount and buyer and the M2 lights up. If a card is declined, the phone offers **Try another card**; either side can cancel.
+5. The bar at the top turns green (**● Card reader**). Leave the app open (it keeps the screen awake).
+6. Sell on the **Sell** tab: type the phone number or last name, pick the quantity, then **Cash**, **Check** or **Card**. Card shows the amount full screen and lights up the M2; hand the reader to the buyer. If a card is declined, the phone offers **Try another card**, or **Cancel payment**.
+7. The slip prints at the print station (/print on the laptop) and the buyer gets a text. The Sell page shows "Slip sent to Laptop printer".
+8. The **Staff** tab is the full staff page (bids, raffle draw, settings). Pull down on either page to reload it.
+
+Cash and check sales work even when the reader isn't connected.
 
 **Practice without a reader:** with the test key in Netlify, turn on **Simulated reader** in the app's settings. It connects to a pretend M2 and approves charges with a test card.
 

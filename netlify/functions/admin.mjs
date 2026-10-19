@@ -12,6 +12,7 @@ import { saleDraft, completeSale, sendSaleText, applySmsResult, textSale, record
 import * as S from "../lib/stripe.mjs";
 import { settleRequest, cancelRequest } from "../lib/cards.mjs";
 import { pullContactsPage, getLookup } from "../lib/lookup.mjs";
+import * as P from "../lib/printq.mjs";
 
 function checkPassword(req) {
   const expected = process.env.ADMIN_PASSWORD;
@@ -470,11 +471,53 @@ const actions = {
     return { ok: true, id: tx.id ?? tx.tid ?? null, campaign: body.campaign_code || "(no campaign)", sent: body };
   },
 
+  /* ---------------- Print station (laptop + USB receipt printer, running /print) ---------------- */
+  async printSend({ s, body }) {
+    const id = str(body.saleId, 80);
+    const doc = await R.getRaffle(s);
+    if (!doc.sales.some((x) => x.id === id)) throw new HttpError(404, "That sale wasn't found.");
+    const job = await P.addJob(s, { saleId: id, from: str(body.from, 60), reprint: !!body.reprint });
+    const q = await P.getPrintQueue(s);
+    return { job, printers: P.livePrinters(q), waiting: P.waitingCount(q) };
+  },
+
+  async printTest({ s, body }) {
+    const job = await P.addJob(s, { kind: "test", from: str(body.from, 60) });
+    return { job };
+  },
+
+  async printPoll({ s, body }) {
+    const jobs = await P.claimJobs(s, body.printer || {});
+    let doc = null;
+    if (jobs.some((j) => j.kind === "slip")) doc = await R.getRaffle(s);
+    const out = jobs.map((j) => {
+      const sale = j.kind === "slip" ? doc.sales.find((x) => x.id === j.saleId) : null;
+      return { ...j, sale: sale ? saleView(sale) : null };
+    });
+    const meta = doc || (await R.getRaffle(s));
+    return { jobs: out, title: meta.title, salesConfig: meta.salesConfig, numbering: R.numbering(meta) };
+  },
+
+  async printDone({ s, body }) {
+    await P.finishJobs(s, body.ids, str(body.printer?.id ?? body.printerId, 60), str(body.error, 200));
+    return { ok: true };
+  },
+
+  async printJobs({ s }) {
+    const q = await P.getPrintQueue(s);
+    const doc = await R.getRaffle(s);
+    const names = new Map(doc.sales.map((x) => [x.id, x]));
+    return {
+      printers: P.livePrinters(q),
+      jobs: q.jobs.slice(-40).reverse().map((j) => { const x = names.get(j.saleId); return { ...j, name: x?.name || "", count: x?.count || 0 }; }),
+    };
+  },
+
   async raffleSales({ s }) {
     const doc = await R.getRaffle(s);
     const gbRecord = { ...R.EMPTY.gbRecord, ...(doc.gbRecord || {}) };
-    const q = await S.getQueue(s);
-    return { sales: doc.sales.slice().reverse().map(saleView), summary: R.salesSummary(doc), salesConfig: doc.salesConfig, title: doc.title, smsConfigured: smsConfigured(), gbRecording: gbRecord.enabled && !!process.env.GIVEBUTTER_API_KEY, gbAuto: gbRecord.auto, numbering: R.numbering(doc), stripe: { configured: S.stripeConfigured(), mode: S.stripeMode() }, terminals: S.liveTerminals(q) };
+    const [q, pq] = await Promise.all([S.getQueue(s), P.getPrintQueue(s)]);
+    return { sales: doc.sales.slice().reverse().map(saleView), summary: R.salesSummary(doc), salesConfig: doc.salesConfig, title: doc.title, smsConfigured: smsConfigured(), gbRecording: gbRecord.enabled && !!process.env.GIVEBUTTER_API_KEY, gbAuto: gbRecord.auto, numbering: R.numbering(doc), stripe: { configured: S.stripeConfigured(), mode: S.stripeMode() }, terminals: S.liveTerminals(q), printers: P.livePrinters(pq), printWaiting: P.waitingCount(pq) };
   },
 
   async raffleVoidSale({ s, body }) {

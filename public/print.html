@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Print Station</title>
+  <link rel="stylesheet" href="/slip.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0b1020; --bg-2:#111831; --card:#161e3c; --line:rgba(255,255,255,.1); --text:#f4f1ea; --muted:#9aa3c0; --dim:#6d7699; --gold:#f2c14e; --green:#39d98a; --red:#ff5a6a; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 Inter, system-ui, sans-serif; }
+    [hidden] { display:none !important; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px; }
+    .card { background: var(--bg-2); border:1px solid var(--line); border-radius: 14px; padding: 20px; margin-top: 14px; }
+    h1 { margin: 0; font-size: 22px; } h2 { margin: 0 0 10px; font-size: 18px; }
+    label { display:block; font-size: 13px; color: var(--muted); font-weight: 600; margin: 12px 0 5px; }
+    input { width:100%; background: var(--bg); color: var(--text); border:1px solid var(--line); border-radius: 10px; padding: 12px; font: inherit; font-size: 17px; }
+    .btn { background: var(--gold); color:#1a1406; border:0; border-radius: 12px; padding: 12px 18px; font: inherit; font-weight: 800; cursor: pointer; }
+    .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 600; }
+    .row { display:flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .status { display:flex; gap: 18px; align-items: center; }
+    .dot { width: 22px; height: 22px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 6px rgba(57,217,138,.18); flex: none; }
+    .status.paused .dot { background: var(--gold); box-shadow: 0 0 0 6px rgba(242,193,78,.18); }
+    .status.off .dot { background: var(--red); box-shadow: 0 0 0 6px rgba(255,90,106,.18); }
+    .big { font-size: 30px; font-weight: 800; }
+    .muted { color: var(--muted); } .dim { color: var(--dim); font-size: 13px; }
+    .msg { padding: 10px 12px; border-radius: 10px; margin-top: 12px; font-weight: 600; }
+    .msg.err { background: rgba(255,90,106,.12); color: var(--red); }
+    .msg.warn { background: rgba(242,193,78,.12); color: var(--gold); }
+    ul.jobs { list-style: none; margin: 0; padding: 0; }
+    ul.jobs li { display:flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+    ul.jobs .nm { flex: 1; font-weight: 600; }
+    .pill { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 20px; background: rgba(255,255,255,.08); color: var(--muted); }
+    .pill.printed { color: var(--green); background: rgba(57,217,138,.12); }
+    .pill.queued, .pill.printing { color: var(--gold); background: rgba(242,193,78,.12); }
+    details summary { cursor: pointer; font-weight: 700; }
+    code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; font-size: 13px; }
+    pre { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+    ol li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <section id="loginView" class="wrap" hidden>
+    <div class="card" style="max-width:380px;margin:12vh auto">
+      <h2>Print station sign in</h2>
+      <form id="loginForm">
+        <label for="pw">Staff password</label>
+        <input id="pw" type="password" autocomplete="current-password" required>
+        <button class="btn" style="width:100%;margin-top:16px">Sign in</button>
+        <div id="loginMsg"></div>
+      </form>
+    </div>
+  </section>
+
+  <main id="appView" class="wrap" hidden>
+    <div class="row"><h1 style="flex:1" id="hdr">Print station</h1><span class="dim">Leave this window open and in front.</span></div>
+
+    <section class="card">
+      <div class="status" id="status">
+        <span class="dot"></span>
+        <div style="flex:1">
+          <div class="big" id="sBig">Ready to print</div>
+          <div class="muted" id="sSub">Slips from phones and other Sell pages print here.</div>
+        </div>
+        <div style="text-align:right"><div class="big" id="sCount">0</div><div class="dim">printed here</div></div>
+      </div>
+      <div id="warn"></div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn" id="pause">Pause printing</button>
+        <button class="btn ghost" id="testLocal">Test print</button>
+        <button class="btn ghost" id="testQueue">Test from the queue</button>
+        <span style="flex:1"></span>
+        <label style="margin:0" for="pname">Name</label>
+        <input id="pname" style="width:200px;padding:8px" maxlength="40">
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Recent slips</h2>
+      <ul class="jobs" id="jobs"><li class="muted">Nothing yet.</li></ul>
+    </section>
+
+    <section class="card">
+      <details>
+        <summary>Set up silent printing (do this once on the laptop)</summary>
+        <p class="muted">Without this, Chrome shows a print dialog for every slip and someone has to click Print. With it, slips just come out.</p>
+        <ol>
+          <li>Install Star's macOS driver for the TSP100 (star-m.jp, "TSP100 futurePRNT" or "Star CUPS driver"), plug the printer in by USB and add it in <b>System Settings › Printers &amp; Scanners</b>. Print a test page from there.</li>
+          <li>Quit Chrome completely (Chrome menu › Quit).</li>
+          <li>Open the Terminal app and paste this (one line), then press Return:
+            <pre id="cmd"></pre>
+            This opens a separate Chrome window just for printing, so your normal Chrome isn't affected.</li>
+          <li>In that window, sign in, press <b>Test print</b> once. If a dialog still appears, pick the <b>Star TSP100</b>, set <b>Margins: None</b>, uncheck <b>Headers and footers</b>, and print. Chrome remembers those choices; quit that window and run the command again.</li>
+          <li>From then on <b>Test print</b> prints with no dialog. Leave the window open (not minimized) during the event, and keep the laptop plugged in with sleep turned off.</li>
+        </ol>
+      </details>
+    </section>
+  </main>
+
+  <div id="slip"></div>
+  <script src="/slip.js"></script>
+  <script src="/print.js"></script>
+</body>
+</html>

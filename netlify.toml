@@ -32,3 +32,14 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
     Cache-Control = "no-store"
+
+[[redirects]]
+  from = "/print"
+  to = "/print.html"
+  status = 200
+
+[[headers]]
+  for = "/print*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store"

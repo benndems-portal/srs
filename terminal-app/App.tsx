@@ -1,13 +1,15 @@
-// SRS Card Terminal — turns an iPhone + Stripe Reader M2 into the card reader for the raffle Sell page.
+// SRS Card Terminal — the whole raffle table on an iPhone: the Sell page and Staff page (web views of
+// the website) plus a Stripe Reader M2 for cards. Slips print on the laptop running /print.
 //
-// How it works: the laptop running /sell creates a card charge on the server. This app checks in with
-// the server every second (/api/terminal), picks the charge up, collects the card on the M2 and lets
-// Stripe confirm it. The server double-checks with Stripe and then creates the sale, prints on the
-// laptop and texts the buyer. Nothing about the card ever touches the website.
+// How cards work: the Sell page (on this phone or on a laptop) creates a card charge on the server. This
+// app checks in with the server every second (/api/terminal), picks the charge up, collects the card on
+// the M2 and lets Stripe confirm it. The server double-checks with Stripe and then creates the sale; the
+// Sell page sends the slip to the print station and the buyer gets a text. Card details never touch the website.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View,
+  ActivityIndicator, Alert, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
 import { useKeepAwake } from 'expo-keep-awake';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,7 +21,7 @@ import {
 /* ---------------- Settings ---------------- */
 type Settings = { siteUrl: string; password: string; name: string; simulated: boolean; deviceId: string; lastReader: string };
 const SETTINGS_KEY = 'srs-terminal-settings';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const blank: Settings = { siteUrl: 'https://', password: '', name: '', simulated: false, deviceId: '', lastReader: '' };
 
 async function loadSettings(): Promise<Settings> {
@@ -119,6 +121,7 @@ function SettingsScreen({ initial, onSave }: { initial: Settings; onSave: (s: Se
 /* ---------------- Terminal screen ---------------- */
 type Charge = { id: string; status: string; amount: number; clientSecret: string; name: string; count: number; title: string; error?: string };
 type Phase = 'idle' | 'collecting' | 'processing' | 'declined' | 'approved' | 'error';
+type Tab = 'sell' | 'staff' | 'reader';
 
 const MESSAGES: Record<string, string> = {
   insertCard: 'Insert card', insertOrSwipeCard: 'Insert or swipe card', multipleContactlessCardsDetected: 'More than one card detected — tap just one',
@@ -146,6 +149,9 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
   const chargeRef = useRef<Charge | null>(null);
   const busy = useRef(false); // a card collection is running
   const canceledRemotely = useRef(false);
+  const [tab, setTab] = useState<Tab>('sell');
+  const sellView = useRef<WebView>(null);
+  const staffView = useRef<WebView>(null);
 
   const sdk = useStripeTerminal({
     onUpdateDiscoveredReaders: (readers) => setFound(readers),
@@ -276,7 +282,7 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
     busy.current = false;
     if (finalStatus === 'succeeded') {
       setPhase('approved'); setReaderMsg('');
-      setTimeout(() => { chargeRef.current = null; setCharge(null); setPhase('idle'); }, 3500);
+      setTimeout(() => { chargeRef.current = null; setCharge(null); setPhase('idle'); }, 2000);
     } else {
       chargeRef.current = null; setCharge(null); setPhase('idle'); setReaderMsg('');
       if (status === 'canceled') setNote(canceledRemotely.current ? 'Canceled on the Sell page.' : 'Payment canceled.');
@@ -289,59 +295,120 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
     await finish('canceled');
   };
 
+  /* ---------- Web pages (Sell + Staff) ---------- */
+  const base = settings.siteUrl.replace(/\/+$/, '');
+  const readerLabel = connectedReader ? `Reader ${connectedReader.serialNumber}${battery != null ? ` · ${Math.round(battery * 100)}%` : ''}` : '';
+  // Signs the page in with the staff password and tells /sell which phone it's on, so its card charges come here.
+  const boot = `(function(){try{sessionStorage.setItem('auctionPw',${JSON.stringify(settings.password)});}catch(e){}
+    window.SRS_APP=${JSON.stringify({ terminalId: settings.deviceId, terminalName: settings.name, app: APP_VERSION })};
+    window.SRS_APP.readerReady=${connectedReader ? 'true' : 'false'};})();true;`;
+  useEffect(() => {
+    const js = `window.SRS_APP&&(window.SRS_APP.readerReady=${connectedReader ? 'true' : 'false'});window.srsSetReader&&window.srsSetReader(${connectedReader ? 'true' : 'false'},${JSON.stringify(readerLabel)});true;`;
+    sellView.current?.injectJavaScript(js);
+  }, [connectedReader, readerLabel]);
+
+  const onMessage = (e: { nativeEvent: { data: string } }) => {
+    try { const m = JSON.parse(e.nativeEvent.data); if (m.type === 'openReader') setTab('reader'); } catch {}
+  };
+  // Links off the website (and "open in new tab" links) go to Safari.
+  const sameSite = (url: string) => url.startsWith(base) || url.startsWith('about:') || url.startsWith('blob:') || url.startsWith('data:');
+  const web = (path: string, ref: React.RefObject<WebView | null>, visible: boolean) => (
+    <WebView
+      ref={ref as any}
+      source={{ uri: base + path }}
+      style={[st.web, !visible && st.hidden]}
+      injectedJavaScriptBeforeContentLoaded={boot}
+      onMessage={onMessage}
+      onShouldStartLoadWithRequest={(r) => { if (sameSite(r.url)) return true; Linking.openURL(r.url).catch(() => {}); return false; }}
+      onOpenWindow={(e) => { const u = e.nativeEvent.targetUrl; if (sameSite(u)) ref.current?.injectJavaScript(`location.href=${JSON.stringify(u)};true;`); else Linking.openURL(u).catch(() => {}); }}
+      pullToRefreshEnabled
+      allowsBackForwardNavigationGestures={false}
+      keyboardDisplayRequiresUserAction={false}
+      hideKeyboardAccessoryView={false}
+      decelerationRate="normal"
+      setSupportMultipleWindows={false}
+      startInLoadingState
+      renderLoading={() => <Centered><ActivityIndicator color="#f2c14e" /></Centered>}
+      renderError={(_d, _c, desc) => (
+        <Centered><Text style={st.problem}>Couldn't load {base + path}{'\n'}{desc}</Text><Btn label="Try again" kind="ghost" onPress={() => ref.current?.reload()} /></Centered>
+      )}
+    />
+  );
+
   /* ---------- UI ---------- */
   const money = (n: number) => '$' + Number(n || 0).toFixed(Number(n) % 1 ? 2 : 0);
+  const readerPane = connectedReader ? (
+    <View style={st.card}>
+      <Text style={st.ready}>Reader ready</Text>
+      <Text style={st.text}>Cards from the Sell tab (and any laptop that sends cards to “{settings.name}”) come to this reader.</Text>
+      <Text style={[st.dim, { marginTop: 14, textAlign: 'center' }]}>{readerLabel}</Text>
+      {update ? <Text style={st.note}>{update}</Text> : null}
+      {note ? <Text style={st.note}>{note}</Text> : null}
+      <Btn label="Back to selling" onPress={() => setTab('sell')} />
+      <Btn label="Disconnect reader" kind="ghost" onPress={() => sdk.disconnectReader()} />
+    </View>
+  ) : (
+    <View style={st.card}>
+      <Text style={st.h2}>Connect the card reader</Text>
+      <Text style={st.text}>Turn on the Stripe Reader M2 (press the button until the lights blink) and keep it near this phone.</Text>
+      {!ready && !problem ? <ActivityIndicator color="#f2c14e" style={{ marginTop: 16 }} /> : null}
+      {connecting ? <Text style={st.note}>Connecting… the first time this can take a few minutes while the reader updates.</Text> : null}
+      {update ? <Text style={st.note}>{update}</Text> : null}
+      {note ? <Text style={st.note}>{note}</Text> : null}
+      {found.map((r) => (
+        <Pressable key={r.serialNumber} style={st.readerRow} onPress={() => connect(r)} disabled={connecting}>
+          <Text style={st.text}>{r.label || r.deviceType} · {r.serialNumber}</Text>
+          <Text style={st.link}>Connect</Text>
+        </Pressable>
+      ))}
+      {ready && <Btn label={scanning ? 'Looking for readers…' : 'Search for readers'} kind="ghost" onPress={scan} disabled={scanning || connecting} />}
+      <Text style={[st.dim, { marginTop: 14, textAlign: 'center' }]}>You can sell cash and check without the reader.</Text>
+    </View>
+  );
+
   return (
     <SafeAreaView style={st.screen}>
       <StatusBar style="light" />
       <View style={st.top}>
-        <View style={{ flex: 1 }}>
-          <Text style={st.topTitle} numberOfLines={1}>{settings.name || 'Card terminal'}</Text>
-          <Text style={st.dim} numberOfLines={1}>{title}{mode ? ` · Stripe ${mode === 'live' ? 'LIVE' : 'TEST'}` : ''}{online ? '' : ' · offline'}</Text>
-        </View>
+        <Pressable style={[st.pill, connectedReader ? st.pillOk : st.pillBad]} onPress={() => setTab('reader')} hitSlop={8}>
+          <Text style={[st.pillText, { color: connectedReader ? '#39d98a' : '#ff5a6a' }]} numberOfLines={1}>
+            ● {connectedReader ? `Card reader${battery != null ? ` ${Math.round(battery * 100)}%` : ''}` : 'Reader not connected'}
+          </Text>
+        </Pressable>
+        <Text style={[st.dim, { flex: 1, marginLeft: 10 }]} numberOfLines={1}>{settings.name}{mode === 'test' ? ' · TEST' : ''}{online ? '' : ' · offline'}</Text>
         <Pressable onPress={onSettings} hitSlop={12} disabled={!!charge}><Text style={[st.link, charge && { opacity: 0.3 }]}>Settings</Text></Pressable>
       </View>
+      {mode === 'test' && <Text style={st.testBanner}>STRIPE TEST MODE — no real money moves</Text>}
 
-      {mode === 'test' && <Text style={st.testBanner}>TEST MODE — no real money moves</Text>}
+      <View style={{ flex: 1 }}>
+        {/* Both pages stay loaded so switching tabs never loses a sale in progress. */}
+        {web('/sell', sellView, tab === 'sell')}
+        {web('/admin', staffView, tab === 'staff')}
+        {tab === 'reader' && <ScrollView contentContainerStyle={st.body}>{readerPane}{problem ? <Text style={st.problem}>{problem}</Text> : null}</ScrollView>}
 
-      <View style={st.body}>
-        {charge ? (
-          <View style={[st.card, phase === 'approved' && st.cardOk, phase === 'declined' && st.cardBad]}>
-            <Text style={st.amount}>{money(charge.amount)}</Text>
-            <Text style={st.buyer}>{charge.name} · {charge.count} ticket{charge.count === 1 ? '' : 's'}</Text>
-            {phase === 'collecting' && <><ActivityIndicator color="#f2c14e" style={{ marginTop: 18 }} /><Text style={st.big}>{readerMsg || 'Tap, insert or swipe'}</Text></>}
-            {phase === 'processing' && <><ActivityIndicator color="#6fa8ff" style={{ marginTop: 18 }} /><Text style={st.big}>Approving…</Text>{readerMsg ? <Text style={st.text}>{readerMsg}</Text> : null}</>}
-            {phase === 'approved' && <Text style={[st.big, { color: '#39d98a' }]}>Approved ✓</Text>}
-            {phase === 'declined' && <><Text style={[st.big, { color: '#ff5a6a' }]}>Declined</Text><Text style={st.text}>{note}</Text><Btn label="Try another card" onPress={tryAgain} /></>}
-            {phase === 'error' && <><Text style={[st.big, { color: '#ff5a6a' }]}>Problem</Text><Text style={st.text}>{note}</Text><Btn label="Try again" onPress={tryAgain} /></>}
-            {phase !== 'approved' && phase !== 'processing' && <Btn label="Cancel payment" kind="danger" onPress={cancelHere} />}
-          </View>
-        ) : connectedReader ? (
-          <View style={st.card}>
-            <Text style={st.ready}>Ready</Text>
-            <Text style={st.text}>Waiting for a card sale from the Sell page…</Text>
-            <Text style={[st.dim, { marginTop: 14 }]}>Reader {connectedReader.serialNumber}{battery != null ? ` · battery ${Math.round(battery * 100)}%` : ''}</Text>
-            {update ? <Text style={st.note}>{update}</Text> : null}
-            {note ? <Text style={st.note}>{note}</Text> : null}
-            <Btn label="Disconnect reader" kind="ghost" onPress={() => sdk.disconnectReader()} />
-          </View>
-        ) : (
-          <View style={st.card}>
-            <Text style={st.h2}>Connect the card reader</Text>
-            <Text style={st.text}>Turn on the Stripe Reader M2 (press the button until the lights blink) and keep it near this phone.</Text>
-            {!ready && !problem ? <ActivityIndicator color="#f2c14e" style={{ marginTop: 16 }} /> : null}
-            {connecting ? <Text style={st.note}>Connecting… the first time this can take a few minutes while the reader updates.</Text> : null}
-            {update ? <Text style={st.note}>{update}</Text> : null}
-            {found.map((r) => (
-              <Pressable key={r.serialNumber} style={st.readerRow} onPress={() => connect(r)} disabled={connecting}>
-                <Text style={st.text}>{r.label || r.deviceType} · {r.serialNumber}</Text>
-                <Text style={st.link}>Connect</Text>
-              </Pressable>
-            ))}
-            {ready && <Btn label={scanning ? 'Looking for readers…' : 'Search for readers'} kind="ghost" onPress={scan} disabled={scanning || connecting} />}
+        {charge && (
+          <View style={st.overlay}>
+            <View style={[st.card, phase === 'approved' && st.cardOk, phase === 'declined' && st.cardBad]}>
+              <Text style={st.amount}>{money(charge.amount)}</Text>
+              <Text style={st.buyer}>{charge.name} · {charge.count} ticket{charge.count === 1 ? '' : 's'}</Text>
+              {phase === 'collecting' && <><ActivityIndicator color="#f2c14e" style={{ marginTop: 18 }} /><Text style={st.big}>{readerMsg || 'Tap, insert or swipe'}</Text><Text style={st.text}>Hand the reader to the buyer.</Text></>}
+              {phase === 'processing' && <><ActivityIndicator color="#6fa8ff" style={{ marginTop: 18 }} /><Text style={st.big}>Approving…</Text>{readerMsg ? <Text style={st.text}>{readerMsg}</Text> : null}</>}
+              {phase === 'approved' && <Text style={[st.big, { color: '#39d98a' }]}>Approved ✓</Text>}
+              {phase === 'declined' && <><Text style={[st.big, { color: '#ff5a6a' }]}>Declined</Text><Text style={st.text}>{note}</Text><Btn label="Try another card" onPress={tryAgain} /></>}
+              {phase === 'error' && <><Text style={[st.big, { color: '#ff5a6a' }]}>Problem</Text><Text style={st.text}>{note}</Text><Btn label="Try again" onPress={tryAgain} /></>}
+              {phase !== 'approved' && phase !== 'processing' && <Btn label="Cancel payment" kind="danger" onPress={cancelHere} />}
+            </View>
           </View>
         )}
-        {problem ? <Text style={st.problem}>{problem}</Text> : null}
+      </View>
+
+      <View style={st.tabs}>
+        {([['sell', 'Sell'], ['staff', 'Staff'], ['reader', 'Card reader']] as [Tab, string][]).map(([k, label]) => (
+          <Pressable key={k} style={st.tab} onPress={() => setTab(k)}>
+            <Text style={[st.tabText, tab === k && st.tabOn]}>{label}</Text>
+            {k === 'reader' && !connectedReader ? <View style={st.badge} /> : null}
+          </Pressable>
+        ))}
       </View>
     </SafeAreaView>
   );
@@ -359,10 +426,22 @@ const Centered = ({ children }: { children: React.ReactNode }) => <View style={[
 
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#0b1020' },
-  top: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
+  top: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' },
   topTitle: { color: '#f4f1ea', fontSize: 18, fontWeight: '800' },
   testBanner: { backgroundColor: '#f2c14e', color: '#1a1406', textAlign: 'center', fontWeight: '800', paddingVertical: 6, letterSpacing: 1 },
-  body: { flex: 1, padding: 20, justifyContent: 'center' },
+  body: { flexGrow: 1, padding: 20, justifyContent: 'center' },
+  web: { flex: 1, backgroundColor: '#0b1020' },
+  hidden: { display: 'none' },
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(11,16,32,0.96)', padding: 20, justifyContent: 'center' },
+  pill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, maxWidth: 210 },
+  pillOk: { borderColor: 'rgba(57,217,138,0.4)', backgroundColor: 'rgba(57,217,138,0.1)' },
+  pillBad: { borderColor: 'rgba(255,90,106,0.45)', backgroundColor: 'rgba(255,90,106,0.1)' },
+  pillText: { fontSize: 13, fontWeight: '800' },
+  tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', backgroundColor: '#111831' },
+  tab: { flex: 1, alignItems: 'center', paddingVertical: 12, flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  tabText: { color: '#9aa3c0', fontSize: 15, fontWeight: '700' },
+  tabOn: { color: '#f2c14e' },
+  badge: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ff5a6a' },
   card: { backgroundColor: '#111831', borderRadius: 18, padding: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'stretch' },
   cardOk: { borderColor: '#39d98a' },
   cardBad: { borderColor: '#ff5a6a' },

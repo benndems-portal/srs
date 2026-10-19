@@ -1,0 +1,22 @@
+/* The printed raffle slip (80 mm receipt paper, ~72 mm printable). Shared by /sell and /print. */
+#slip { display: none; }
+@media print {
+  @page { margin: 0; }
+  html, body { background: #fff !important; }
+  body > *:not(#slip) { display: none !important; }
+  #slip { display: block; width: 72mm; margin: 0 auto; padding: 3mm 0 6mm; color: #000; font: 11pt/1.3 Inter, Arial, sans-serif; }
+}
+#slip .ev { text-align: center; font-weight: 800; font-size: 13pt; line-height: 1.2; }
+#slip .banner { margin: 2.5mm 0; background: #000; color: #fff; text-align: center; font-weight: 800; letter-spacing: .25em; font-size: 12pt; padding: 1.5mm 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+#slip .meta { display:flex; justify-content: space-between; font-size: 9pt; }
+#slip .name { font-size: 13pt; font-weight: 800; margin: 2mm 0 1mm; }
+#slip .count { font-size: 10pt; }
+#slip .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 3mm; margin: 3mm 0; border-top: 0.4mm dashed #000; border-bottom: 0.4mm dashed #000; padding: 2.5mm 0; }
+#slip .nums.one { grid-template-columns: 1fr; text-align: center; }
+#slip .nums span { font: 600 15pt/1.15 "Courier New", monospace; letter-spacing: .02em; }
+#slip .nums span b { font-weight: 900; }
+#slip .nums.one span { font-size: 24pt; }
+#slip .info { text-align: center; font-weight: 700; font-size: 10pt; }
+#slip .foot { text-align: center; font-size: 9pt; margin-top: 2mm; }
+#slip .ref { text-align: center; font-size: 8pt; margin-top: 2mm; }
+#slip .cut { text-align: center; font-size: 8pt; margin-top: 4mm; letter-spacing: .15em; }

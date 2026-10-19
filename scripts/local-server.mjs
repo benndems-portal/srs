@@ -166,7 +166,7 @@ http.createServer(async (req, res) => {
     res.writeHead(r.status, Object.fromEntries(r.headers));
     return res.end(Buffer.from(await r.arrayBuffer()));
   }
-  let p = url.pathname === "/" ? "/index.html" : url.pathname === "/admin" ? "/admin.html" : url.pathname === "/raffle" ? "/raffle.html" : url.pathname === "/sell" ? "/sell.html" : url.pathname;
+  let p = url.pathname === "/" ? "/index.html" : url.pathname === "/admin" ? "/admin.html" : url.pathname === "/raffle" ? "/raffle.html" : url.pathname === "/sell" ? "/sell.html" : url.pathname === "/print" ? "/print.html" : url.pathname;
   const file = normalize(join(PUBLIC, p));
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
   try {
