@@ -92,7 +92,14 @@
           <li>Open the Terminal app and paste this (one line), then press Return:
             <pre id="cmd"></pre>
             This opens a separate Chrome window just for printing, so your normal Chrome isn't affected.</li>
-          <li>In that window, sign in, press <b>Test print</b> once. If a dialog still appears, pick the <b>Star TSP100</b>, set <b>Margins: None</b>, uncheck <b>Headers and footers</b>, and print. Chrome remembers those choices; quit that window and run the command again.</li>
+          <li>Before the kiosk window, set Chrome's print choices once, because silent printing reuses them. Open this page in that Chrome profile <b>without</b> the kiosk switch (same command without <code>--kiosk-printing</code>), press <b>Test print</b>, and in the dialog:
+            <ul>
+              <li><b>Destination:</b> the Star TSP100</li>
+              <li><b>Layout:</b> Portrait</li>
+              <li>Under <b>More settings</b>: <b>Paper size</b> a 72 mm size (e.g. "72mm x 200mm" or "72mm x Receipt"), <b>Margins: None</b>, <b>Scale: Default</b>, and <b>Headers and footers</b> unchecked (this is what prints the date and web address)</li>
+            </ul>
+            Print. The slip should come out upright with nothing at the top or bottom. Quit that window, then run the command above (with <code>--kiosk-printing</code>).</li>
+          <li>If it still comes out sideways, open <b>System Settings › Printers &amp; Scanners › TSP100 › Options</b> (or the driver's utility) and make the default paper a 72 mm receipt size, not Letter.</li>
           <li>From then on <b>Test print</b> prints with no dialog. Leave the window open (not minimized) during the event, and keep the laptop plugged in with sleep turned off.</li>
         </ol>
       </details>

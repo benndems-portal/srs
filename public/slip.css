@@ -1,10 +1,11 @@
-/* The printed raffle slip (80 mm receipt paper, ~72 mm printable). Shared by /sell and /print. */
+/* The printed raffle slip. The page is 72 mm wide (the TSP100's printable width on 80 mm paper)
+   and always taller than it is wide, so it never prints sideways. Shared by /sell and /print. */
 #slip { display: none; }
 @media print {
   @page { margin: 0; }
   html, body { background: #fff !important; }
   body > *:not(#slip) { display: none !important; }
-  #slip { display: block; width: 72mm; margin: 0 auto; padding: 3mm 0 6mm; color: #000; font: 11pt/1.3 Inter, Arial, sans-serif; }
+  #slip { display: block; width: 72mm; margin: 0; padding: 3mm 2mm 6mm; color: #000; font: 11pt/1.3 Inter, Arial, sans-serif; }
 }
 #slip .ev { text-align: center; font-weight: 800; font-size: 13pt; line-height: 1.2; }
 #slip .banner { margin: 2.5mm 0; background: #000; color: #fff; text-align: center; font-weight: 800; letter-spacing: .25em; font-size: 12pt; padding: 1.5mm 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }

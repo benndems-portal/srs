@@ -31,19 +31,24 @@ window.SRSSlip = (() => {
       <div class="ref">${esc(new Date().toLocaleString())}</div><div class="cut">✂ - - - - - - - - - - - - - - -</div>`;
   }
 
-  // Puts the slip on the page, sizes the paper to it (so the receipt printer doesn't feed blank paper),
-  // and opens the print. In Chrome window.print() blocks until the job is handed to the printer.
+  // The page Chrome sends to the printer: 72 mm wide (what Star's driver calls "72mm x ..." paper).
+  // It must always be taller than wide, or Chrome and macOS treat it as landscape and print it sideways.
+  const PAGE_W = 72, MIN_H = 110;
+
+  // Puts the slip on the page, sizes the paper to it (so the receipt printer doesn't feed lots of blank
+  // paper), and opens the print. In Chrome window.print() blocks until the job is handed to the printer.
   function print(inner) {
     const slip = document.getElementById("slip");
     slip.innerHTML = inner;
     let st = document.getElementById("slipPage");
     if (!st) { st = document.createElement("style"); st.id = "slipPage"; document.head.appendChild(st); }
     slip.style.cssText = "display:block;position:absolute;left:-9999px;width:72mm";
-    const mm = Math.ceil(slip.getBoundingClientRect().height / (96 / 25.4)) + 12;
+    const mm = Math.max(MIN_H, Math.ceil(slip.getBoundingClientRect().height / (96 / 25.4)) + 12);
     slip.style.cssText = "";
-    st.textContent = `@media print { @page { size: 80mm ${mm}mm; margin: 0; } }`;
+    // margin: 0 also leaves Chrome no room for its date/title/URL headers and footers.
+    st.textContent = `@media print { @page { size: ${PAGE_W}mm ${mm}mm; margin: 0; } html, body { width: ${PAGE_W}mm; margin: 0 !important; padding: 0 !important; } }`;
     return new Promise((resolve) => setTimeout(() => { window.print(); resolve(); }, 50));
   }
 
-  return { html, testHTML, print, payLabel, numHTML, esc, fmt$ };
+  return { PAGE_W, MIN_H, html, testHTML, print, payLabel, numHTML, esc, fmt$ };
 })();
