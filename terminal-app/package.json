@@ -1,6 +1,6 @@
 {
   "name": "srs-card-terminal",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "main": "index.ts",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

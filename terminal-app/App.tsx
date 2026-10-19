@@ -21,7 +21,7 @@ import {
 /* ---------------- Settings ---------------- */
 type Settings = { siteUrl: string; password: string; name: string; simulated: boolean; deviceId: string; lastReader: string };
 const SETTINGS_KEY = 'srs-terminal-settings';
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 const blank: Settings = { siteUrl: 'https://', password: '', name: '', simulated: false, deviceId: '', lastReader: '' };
 
 async function loadSettings(): Promise<Settings> {
@@ -316,7 +316,9 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
     <WebView
       ref={ref as any}
       source={{ uri: base + path }}
-      style={[st.web, !visible && st.hidden]}
+      style={st.web}
+      // The library wraps the page in its own flex:1 box, so hide that box, or a hidden tab still takes half the screen.
+      containerStyle={visible ? st.webBox : st.hidden}
       injectedJavaScriptBeforeContentLoaded={boot}
       onMessage={onMessage}
       onShouldStartLoadWithRequest={(r) => { if (sameSite(r.url)) return true; Linking.openURL(r.url).catch(() => {}); return false; }}
@@ -328,9 +330,9 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
       decelerationRate="normal"
       setSupportMultipleWindows={false}
       startInLoadingState
-      renderLoading={() => <Centered><ActivityIndicator color="#f2c14e" /></Centered>}
+      renderLoading={() => <View style={st.webCover}><ActivityIndicator color="#f2c14e" /></View>}
       renderError={(_d, _c, desc) => (
-        <Centered><Text style={st.problem}>Couldn't load {base + path}{'\n'}{desc}</Text><Btn label="Try again" kind="ghost" onPress={() => ref.current?.reload()} /></Centered>
+        <View style={[st.webCover, { padding: 20 }]}><Text style={st.problem}>Couldn't load {base + path}{'\n'}{desc}</Text><Btn label="Try again" kind="ghost" onPress={() => ref.current?.reload()} /></View>
       )}
     />
   );
@@ -431,6 +433,8 @@ const st = StyleSheet.create({
   testBanner: { backgroundColor: '#f2c14e', color: '#1a1406', textAlign: 'center', fontWeight: '800', paddingVertical: 6, letterSpacing: 1 },
   body: { flexGrow: 1, padding: 20, justifyContent: 'center' },
   web: { flex: 1, backgroundColor: '#0b1020' },
+  webBox: { flex: 1 },
+  webCover: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0b1020' },
   hidden: { display: 'none' },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(11,16,32,0.96)', padding: 20, justifyContent: 'center' },
   pill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, maxWidth: 210 },
