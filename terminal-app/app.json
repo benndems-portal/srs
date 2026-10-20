@@ -2,7 +2,7 @@
   "expo": {
     "name": "SRS Card Terminal",
     "slug": "srs-card-terminal",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -23,7 +23,11 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "plugins": [
       [
@@ -41,6 +45,12 @@
           "locationWhenInUsePermission": "Stripe requires location access to take card payments with a card reader."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1773a234-6d0d-4ddb-a47b-610b27df4fa3"
+      }
+    },
+    "owner": "westandcos-team"
   }
 }

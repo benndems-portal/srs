@@ -21,7 +21,7 @@ import {
 /* ---------------- Settings ---------------- */
 type Settings = { siteUrl: string; password: string; name: string; simulated: boolean; deviceId: string; lastReader: string };
 const SETTINGS_KEY = 'srs-terminal-settings';
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.1.2';
 const blank: Settings = { siteUrl: 'https://', password: '', name: '', simulated: false, deviceId: '', lastReader: '' };
 
 async function loadSettings(): Promise<Settings> {
@@ -312,13 +312,18 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
   };
   // Links off the website (and "open in new tab" links) go to Safari.
   const sameSite = (url: string) => url.startsWith(base) || url.startsWith('about:') || url.startsWith('blob:') || url.startsWith('data:');
+  // Every tab is stacked on top of the others, filling the whole area; only the chosen one is visible
+  // and touchable. (Sharing the space in a column is what squeezed each page into half the screen.)
+  const layer = (visible: boolean) => [st.layer, visible ? st.layerOn : st.layerOff];
   const web = (path: string, ref: React.RefObject<WebView | null>, visible: boolean) => (
+    <View style={layer(visible)} pointerEvents={visible ? 'auto' : 'none'}>
     <WebView
       ref={ref as any}
       source={{ uri: base + path }}
       style={st.web}
-      // The library wraps the page in its own flex:1 box, so hide that box, or a hidden tab still takes half the screen.
-      containerStyle={visible ? st.webBox : st.hidden}
+      containerStyle={st.webBox}
+      contentInsetAdjustmentBehavior="never"
+      automaticallyAdjustContentInsets={false}
       injectedJavaScriptBeforeContentLoaded={boot}
       onMessage={onMessage}
       onShouldStartLoadWithRequest={(r) => { if (sameSite(r.url)) return true; Linking.openURL(r.url).catch(() => {}); return false; }}
@@ -335,6 +340,7 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
         <View style={[st.webCover, { padding: 20 }]}><Text style={st.problem}>Couldn't load {base + path}{'\n'}{desc}</Text><Btn label="Try again" kind="ghost" onPress={() => ref.current?.reload()} /></View>
       )}
     />
+    </View>
   );
 
   /* ---------- UI ---------- */
@@ -377,7 +383,7 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
             ● {connectedReader ? `Card reader${battery != null ? ` ${Math.round(battery * 100)}%` : ''}` : 'Reader not connected'}
           </Text>
         </Pressable>
-        <Text style={[st.dim, { flex: 1, marginLeft: 10 }]} numberOfLines={1}>{settings.name}{mode === 'test' ? ' · TEST' : ''}{online ? '' : ' · offline'}</Text>
+        <Text style={[st.dim, { flex: 1, marginLeft: 10 }]} numberOfLines={1}>{settings.name}{mode === 'test' ? ' · TEST' : ''}{online ? '' : ' · offline'} · v{APP_VERSION}</Text>
         <Pressable onPress={onSettings} hitSlop={12} disabled={!!charge}><Text style={[st.link, charge && { opacity: 0.3 }]}>Settings</Text></Pressable>
       </View>
       {mode === 'test' && <Text style={st.testBanner}>STRIPE TEST MODE — no real money moves</Text>}
@@ -386,7 +392,9 @@ function TerminalScreen({ settings, onSettings, onRemember }: { settings: Settin
         {/* Both pages stay loaded so switching tabs never loses a sale in progress. */}
         {web('/sell', sellView, tab === 'sell')}
         {web('/admin', staffView, tab === 'staff')}
-        {tab === 'reader' && <ScrollView contentContainerStyle={st.body}>{readerPane}{problem ? <Text style={st.problem}>{problem}</Text> : null}</ScrollView>}
+        <View style={layer(tab === 'reader')} pointerEvents={tab === 'reader' ? 'auto' : 'none'}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={st.body}>{readerPane}{problem ? <Text style={st.problem}>{problem}</Text> : null}</ScrollView>
+        </View>
 
         {charge && (
           <View style={st.overlay}>
@@ -434,9 +442,12 @@ const st = StyleSheet.create({
   body: { flexGrow: 1, padding: 20, justifyContent: 'center' },
   web: { flex: 1, backgroundColor: '#0b1020' },
   webBox: { flex: 1 },
+  layer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0b1020' },
+  layerOn: { zIndex: 2, opacity: 1 },
+  layerOff: { zIndex: 0, opacity: 0 },
   webCover: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0b1020' },
   hidden: { display: 'none' },
-  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(11,16,32,0.96)', padding: 20, justifyContent: 'center' },
+  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, backgroundColor: 'rgba(11,16,32,0.96)', padding: 20, justifyContent: 'center' },
   pill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, maxWidth: 210 },
   pillOk: { borderColor: 'rgba(57,217,138,0.4)', backgroundColor: 'rgba(57,217,138,0.1)' },
   pillBad: { borderColor: 'rgba(255,90,106,0.45)', backgroundColor: 'rgba(255,90,106,0.1)' },
