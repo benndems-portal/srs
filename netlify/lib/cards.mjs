@@ -1,6 +1,6 @@
 // Finishing (or abandoning) a card request. Safe to call from the phone and the laptop at
 // the same time: the sale's id is the request id, so it can only be created once.
-import { getQueue, updateQueue, retrievePi, cancelPi, cardInfo } from "./stripe.mjs";
+import { getQueue, updateQueue, retrievePi, cancelPi, cardInfo, notePiSale } from "./stripe.mjs";
 import { completeSale } from "./sales.mjs";
 import { HttpError } from "./store.mjs";
 
@@ -21,10 +21,11 @@ export async function settleRequest(s, id) {
   const pi = await retrievePi(r.piId);
   if (pi.status === "succeeded") {
     const card = cardInfo(pi);
-    const { sale } = await completeSale(s, { ...r.draft, payment: "card", amount: pi.amount_received / 100 }, {
+    const { sale, created } = await completeSale(s, { ...r.draft, payment: "card", amount: pi.amount_received / 100 }, {
       id: r.id,
       stripe: { pi: pi.id, brand: card.brand, last4: card.last4, wallet: card.wallet, charge: card.charge, livemode: !!pi.livemode },
     });
+    if (created) await notePiSale(pi.id, sale);
     await updateQueue(s, (q) => {
       const x = q.requests.find((y) => y.id === id);
       if (x) Object.assign(x, { status: "succeeded", saleId: sale.id, endedAt: new Date().toISOString(), card: { brand: card.brand, last4: card.last4 }, error: "" });

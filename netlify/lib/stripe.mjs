@@ -66,10 +66,14 @@ export async function terminalLocation(s) {
   const list = await stripe("GET", "/terminal/locations", { limit: 1 });
   let loc = list.data?.[0];
   if (!loc) {
-    loc = await stripe("POST", "/terminal/locations", {
-      display_name: "Sarah Ramsey Strong 5K",
-      address: { line1: process.env.STRIPE_LOCATION_LINE1 || "Race day", city: process.env.STRIPE_LOCATION_CITY || "Event", state: process.env.STRIPE_LOCATION_STATE || "GA", postal_code: process.env.STRIPE_LOCATION_ZIP || "30000", country: "US" },
-    });
+    try {
+      loc = await stripe("POST", "/terminal/locations", {
+        display_name: "Sarah Ramsey Strong 5K",
+        address: { line1: process.env.STRIPE_LOCATION_LINE1 || "Race day", city: process.env.STRIPE_LOCATION_CITY || "Event", state: process.env.STRIPE_LOCATION_STATE || "GA", postal_code: process.env.STRIPE_LOCATION_ZIP || "30000", country: "US" },
+      });
+    } catch (e) {
+      throw new HttpError(400, `Your Stripe account (${stripeMode()} mode) has no Terminal location yet. In the Stripe Dashboard${stripeMode() === "live" ? " with Test mode off" : ""}, open Terminal › Locations, add one with the race's real address, then reopen the app. (${e.message})`);
+    }
   }
   await s.setJSON("stripe-location", { id: loc.id, mode: stripeMode() });
   return loc.id;
@@ -97,17 +101,54 @@ export async function updateQueue(s, fn) {
 
 const cents = (amount) => Math.round(Number(amount) * 100);
 
+/* ---------------- Customers ---------------- */
+// Card buyers become Stripe Customers (name, email, phone), so payments show who paid in the
+// Customer column and a repeat buyer's payments are grouped. Found by email, then phone; ids are
+// cached in a blob because Stripe's search can lag a minute behind new customers.
+const CUST_KEY = "stripe-customers";
+const quote = (v) => `'${String(v).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+
+export async function findOrCreateCustomer(s, draft) {
+  const email = String(draft.email || "").trim().toLowerCase();
+  const phone = draft.phone || "";
+  const keys = [email && "e:" + email, phone && "p:" + phone].filter(Boolean);
+  const mode = stripeMode();
+  const cache = (await s.get(CUST_KEY, { type: "json" })) || {};
+  let id = keys.map((k) => cache[mode + "|" + k]).find(Boolean) || "";
+  if (!id && keys.length) {
+    const q = [email && `email:${quote(email)}`, phone && `phone:${quote(phone)}`].filter(Boolean).join(" OR ");
+    const found = await stripe("GET", "/customers/search", { query: q, limit: 1 }).catch(() => null);
+    id = found?.data?.[0]?.id || "";
+  }
+  const fields = {
+    name: draft.name,
+    ...(email ? { email } : {}),
+    ...(phone ? { phone } : {}),
+    metadata: { source: "SRS raffle", ...(draft.contactId ? { givebutter_contact_id: String(draft.contactId) } : {}) },
+  };
+  const c = id
+    ? await stripe("POST", `/customers/${encodeURIComponent(id)}`, fields).catch(() => ({ id }))
+    : await stripe("POST", "/customers", fields);
+  if (keys.length) {
+    await updateJSON(s, CUST_KEY, (cur) => { const m = cur || {}; for (const k of keys) m[mode + "|" + k] = c.id; return m; }).catch(() => {});
+  }
+  return c.id;
+}
+
 export async function createCardRequest(s, { draft, title, terminal }) {
   const amount = cents(draft.amount);
   if (amount < 50) throw new HttpError(400, "Card payments must be at least $0.50.");
   const id = randomUUID();
+  // Never let a customer-lookup hiccup stop the sale: the buyer is also in the metadata.
+  const customer = await findOrCreateCustomer(s, draft).catch((e) => { console.error("stripe customer:", e.message); return ""; });
   const pi = await stripe("POST", "/payment_intents", {
+    ...(customer ? { customer } : {}),
     amount,
     currency: "usd",
     payment_method_types: ["card_present"],
     capture_method: "automatic",
     description: `Raffle tickets (${draft.count}) – ${draft.name}`.slice(0, 1000),
-    metadata: { srs_request: id, buyer: draft.name.slice(0, 450), phone: draft.phone || "", tickets: String(draft.count), purpose: "raffle tickets" },
+    metadata: { srs_request: id, buyer: draft.name.slice(0, 450), email: draft.email || "", phone: draft.phone || "", tickets: String(draft.count), purpose: "raffle tickets" },
   }, { idempotencyKey: "srs-card-" + id });
   const req = {
     id,
@@ -155,6 +196,16 @@ export function cardInfo(pi) {
 
 export async function retrievePi(piId) {
   return stripe("GET", `/payment_intents/${encodeURIComponent(piId)}`, { "expand[]": "latest_charge" });
+}
+
+// After the sale exists: put the ticket numbers on the payment, for looking it up later in Stripe.
+export async function notePiSale(piId, sale) {
+  try {
+    await stripe("POST", `/payment_intents/${encodeURIComponent(piId)}`, {
+      description: `Raffle tickets (${sale.count}) – ${sale.name}: ${sale.numbers.join(", ")}`.slice(0, 1000),
+      metadata: { ticket_numbers: sale.numbers.join(" ").slice(0, 500), sale_id: sale.id },
+    });
+  } catch (e) { console.error("stripe note:", e.message); }
 }
 
 export async function cancelPi(piId) {

@@ -96,13 +96,17 @@ if (process.env.MOCK_STRIPE === "1") {
     if (p === "/v1/terminal/locations") return opts.method === "POST" ? ok({ id: "tml_mock" }) : ok({ data: [] });
     if (p === "/v1/payment_intents" && opts.method === "POST") {
       const id = "pi_mock_" + ++n;
-      const pi = { id, object: "payment_intent", amount: Number(f.get("amount")), amount_received: 0, status: "requires_payment_method", client_secret: id + "_secret_x", description: f.get("description"), metadata: Object.fromEntries([...f].filter(([k]) => k.startsWith("metadata["))), livemode: false };
+      const pi = { id, object: "payment_intent", customer: f.get("customer"), amount: Number(f.get("amount")), amount_received: 0, status: "requires_payment_method", client_secret: id + "_secret_x", description: f.get("description"), metadata: Object.fromEntries([...f].filter(([k]) => k.startsWith("metadata["))), livemode: false };
       mockPi.set(id, pi); return ok(pi);
     }
+    if (p === "/v1/customers/search") { globalThis.__mockCust ??= []; const q = u.searchParams.get("query") || ""; return ok({ data: globalThis.__mockCust.filter((c) => (c.email && q.includes(c.email)) || (c.phone && q.includes(c.phone))).slice(0, 1) }); }
+    if (p === "/v1/customers" && opts.method === "POST") { globalThis.__mockCust ??= []; const c = { id: "cus_mock_" + ++n, name: f.get("name"), email: f.get("email"), phone: f.get("phone") }; globalThis.__mockCust.push(c); return ok(c); }
+    if (p.startsWith("/v1/customers/") && opts.method === "POST") { const c = (globalThis.__mockCust || []).find((x) => x.id === p.split("/").pop()); return c ? ok(Object.assign(c, { name: f.get("name") })) : ok({ error: { message: "No such customer" } }, 404); }
     let m = /^\/v1\/payment_intents\/([^/]+)(\/cancel)?$/.exec(p);
     if (m) {
       const pi = mockPi.get(m[1]);
       if (!pi) return ok({ error: { message: "No such payment_intent" } }, 404);
+      if (opts.method === "POST" && !m[2]) { for (const [k, v] of f) { if (k === "description") pi.description = v; else if (k.startsWith("metadata[")) pi.metadata[k] = v; } }
       if (m[2]) { if (pi.status === "succeeded") return ok({ error: { message: "You cannot cancel this PaymentIntent because it has a status of succeeded." } }, 400); pi.status = "canceled"; }
       return ok(pi);
     }
@@ -145,6 +149,7 @@ http.createServer(async (req, res) => {
     if (pi && !b.decline) { pi.status = "succeeded"; pi.amount_received = pi.amount; pi.latest_charge = { id: "ch_" + pi.id, payment_method_details: { card_present: { brand: "visa", last4: "4242", wallet: b.wallet ? { type: "apple_pay" } : null } } }; }
     res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(pi || null));
   }
+  if (url.pathname === "/__mock/stripe/pis") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify({ pis: [...mockPi.values()], customers: globalThis.__mockCust || [] })); }
   if (url.pathname === "/__mock/sms") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(mockSms)); }
   if (mockFeed && url.pathname === "/__mock/bid") {
     const chunks = []; for await (const c of req) chunks.push(c);

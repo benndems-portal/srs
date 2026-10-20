@@ -158,6 +158,7 @@ The page also shows running cash/check/card totals and which card terminals are 
 - Add `STRIPE_SECRET_KEY` in Netlify and redeploy. The server creates a Stripe Terminal location for the race automatically (or set `STRIPE_TERMINAL_LOCATION=tml_…` to use one of yours).
 - Install **SRS Card Terminal** on each iPhone from TestFlight (build steps in `terminal-app/README.md`), enter the site address, the staff password and a name like "Table 1", and connect the M2. Keep the app open on the table.
 - With two tables, choose **Cards go to** on each laptop so its charges go to its own iPhone. Otherwise the first free terminal takes the charge.
+- Each card buyer is saved as a Stripe **Customer** (name, email, phone; found again by email or phone, so repeat buyers aren't duplicated), and after the sale the payment's description and metadata get the ticket numbers.
 - The website never sees card details, and a sale is only created after the server checks with Stripe that the payment succeeded, so a phone can't fake an approval. If the phone loses signal right after the tap, the laptop asks Stripe itself after a few seconds.
 - Practice with a `sk_test_…` key and the app's **Simulated reader** switch, then put the live key in Netlify for the event. Test mode shows on both the Sell page and the app.
 
