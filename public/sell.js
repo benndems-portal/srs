@@ -371,6 +371,7 @@
     $("dWho").textContent = `${sale.name} · ${sale.count} ticket${sale.count === 1 ? "" : "s"} · ${fmt$(sale.amount)} ${payLabel(sale)}`;
     $("dNums").innerHTML = sale.numbers.map((n) => `<span>${numHTML(n)}</span>`).join("");
     $("dSms").innerHTML = smsLine(sale);
+    if (sale.phone && !sale.sms) waitForText(sale.id);
     $("dPrintMsg").innerHTML = "";
     if ($("optPrint").checked) printSlip(sale);
     if (coarse) $("done").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -380,8 +381,24 @@
   const payLabel = SRSSlip.payLabel;
   const numHTML = (n) => SRSSlip.numHTML(n, prefix);
 
+  // A card sale can reach this page a moment before its text has finished sending
+  // (the phone and this page both finish the sale). Check back for the result.
+  async function waitForText(id, tries = 0) {
+    await new Promise((r) => setTimeout(r, 1500));
+    if (lastSale?.id !== id || $("done").hidden) return;
+    try {
+      const r = await api("raffleSales");
+      const x = r.sales.find((y) => y.id === id);
+      if (x?.sms) { lastSale = x; $("dSms").innerHTML = smsLine(x); return; }
+    } catch {}
+    if (tries < 6) waitForText(id, tries + 1);
+    else $("dSms").innerHTML = smsLine({ ...lastSale, sms: { status: "unknown" } });
+  }
+
   function smsLine(sale) {
     const st = sale.sms?.status;
+    if (!st && sale.phone) return `<div class="msg warn">Sending the text to ${esc(sale.phonePretty)}…</div>`;
+    if (st === "unknown") return `<div class="msg warn">Couldn't confirm the text to ${esc(sale.phonePretty)}. Check Recent sales; use “Text again” only if it isn't marked texted.</div>`;
     if (st === "sent") return `<div class="msg ok">Texted to ${esc(sale.phonePretty)}</div>`;
     if (st === "none" || !sale.phone) return `<div class="msg warn">No phone, so no text was sent. Make sure they keep the slip.</div>`;
     if (st === "not-configured") return `<div class="msg warn">Texting isn't set up, so give them the slip.</div>`;
