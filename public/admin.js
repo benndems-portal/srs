@@ -653,6 +653,10 @@
   const reset = (everything) => rApi("raffleReset", { confirm: $("rResetConfirm").value.trim(), everything }, "rResetMsg").then(() => msg("rResetMsg", everything ? "Raffle cleared." : "All draws cleared.")).catch(() => {});
   $("rResetDraws").onclick = () => reset(false);
   $("rResetAll").onclick = () => reset(true);
+  $("rClearSales").onclick = () => {
+    if (!confirm("Delete every raffle sale? Their ticket numbers leave the drawing and numbering starts over. This can't be undone.")) return;
+    rApi("raffleClearSales", { confirm: $("rResetConfirm").value.trim() }, "rResetMsg").then((r) => msg("rResetMsg", `Cleared ${r.cleared} sale${r.cleared === 1 ? "" : "s"}.`)).catch(() => {});
+  };
 
   $("tabs").addEventListener("click", (e) => { if (e.target.closest("[data-tab=raffle]")) loadRaffle(); });
   // Keep the raffle tab fresh while it's open (other staff may be drawing too).

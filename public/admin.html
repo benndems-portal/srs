@@ -330,8 +330,9 @@
 
         <div class="card" style="border-color:rgba(255,90,106,.35)">
           <h2 style="color:var(--red)">Reset raffle</h2>
-          <p class="muted" style="margin-top:0">Clear every draw (for a practice run), or clear everything including tickets and participants. Type RESET to confirm.</p>
-          <div class="row"><input id="rResetConfirm" placeholder="RESET" style="max-width:160px"><button class="btn danger" id="rResetDraws">Clear draws</button><button class="btn danger" id="rResetAll">Clear everything</button></div>
+          <p class="muted" style="margin-top:0">Clear every draw (for a practice run), clear everything including tickets and participants, or clear the practice sales. Type RESET to confirm.</p>
+          <div class="row"><input id="rResetConfirm" placeholder="RESET" style="max-width:160px"><button class="btn danger" id="rResetDraws">Clear draws</button><button class="btn danger" id="rResetAll">Clear everything</button><button class="btn danger" id="rClearSales">Clear all sales</button></div>
+          <p class="dim" style="margin:8px 0 0">“Clear all sales” deletes every ticket sold on the Sell page (use it after practicing) so race-day numbers start again at the first number. Real card sales must be voided (refunded) first.</p>
           <div id="rResetMsg"></div>
         </div>
       </section>

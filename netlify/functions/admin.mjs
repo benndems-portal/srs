@@ -338,6 +338,21 @@ const actions = {
     return raffleView(doc);
   },
 
+  // Wipes every sale (practice runs) so race-day numbers start again at 2026 0001.
+  async raffleClearSales({ s, body }) {
+    if (body.confirm !== "RESET") throw new HttpError(400, "Type RESET to confirm.");
+    const cur = await R.getRaffle(s);
+    const live = cur.sales.filter((x) => x.stripe?.livemode && !x.stripe?.refunded);
+    if (live.length) throw new HttpError(409, `${live.length} sale(s) were charged on a real card (${live.map((x) => x.name).join(", ")}). Void them on the Sell page first so the money is refunded, then clear.`);
+    const doc = await R.updateRaffle(s, (d) => {
+      const nums = new Set(d.sales.flatMap((x) => x.numbers));
+      for (const n of nums) delete d.texted[n];
+      d.sales = []; d.saleSeq = 0;
+      d.draws = d.draws.filter((x) => !nums.has(x.number));
+    });
+    return { cleared: cur.sales.length, ...raffleView(doc) };
+  },
+
   async raffleReset({ s, body }) {
     if (body.confirm !== "RESET") throw new HttpError(400, "Type RESET to confirm.");
     const doc = await R.updateRaffle(s, (d) => {
