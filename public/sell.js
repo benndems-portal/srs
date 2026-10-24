@@ -26,7 +26,7 @@
   const station = pref.get("sellStation", "") || (() => { const v = "st-" + Math.random().toString(36).slice(2, 8); pref.set("sellStation", v); return v; })();
 
   let password = store.get("auctionPw") || "";
-  let cfg = { price: 10, bundles: [] };
+  let cfg = { price: 5, bundles: [{ count: 3, price: 10 }, { count: 7, price: 20 }] };
   let title = "Raffle";
   let prefix = "2026";
   let sales = [];
@@ -215,9 +215,15 @@
   for (const id of ["fName", "fPhone", "fEmail"]) $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); focusPay(); } });
 
   /* ---------- Step 2: quantity + price ---------- */
+  // Cheapest mix of single tickets and bundles (same rule as the server), so "Other #" 10 = 7 + 3 = $30.
   const priceFor = (n) => {
-    const b = (cfg.bundles || []).find((x) => x.count === n);
-    return b ? b.price : Math.round(n * (Number(cfg.price) || 0) * 100) / 100;
+    const packs = [{ count: 1, price: Number(cfg.price) || 0 }, ...(cfg.bundles || []).filter((b) => b.count > 0)];
+    const best = [0];
+    for (let i = 1; i <= n; i++) {
+      best[i] = Infinity;
+      for (const p of packs) if (p.count <= i) best[i] = Math.min(best[i], best[i - p.count] + Number(p.price));
+    }
+    return Math.round(best[n] * 100) / 100;
   };
   function renderQty() {
     const opts = [1, ...(cfg.bundles || []).map((b) => b.count)].filter((v, i, a) => a.indexOf(v) === i);

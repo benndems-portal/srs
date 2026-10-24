@@ -150,7 +150,7 @@ The Sell page is for volunteers on a laptop, and it uses the staff password. It 
 
 The sale then gets permanent numbers (**20260001, 20260002, …**) that go straight into the drawing, prints one receipt slip and texts the numbers to the buyer. **Enter** starts the next buyer.
 
-The page also shows running cash/check/card totals and which card terminals are online, plus a search box, **Reprint**, **Text again** (which can fix a mistyped number) and **Void** (removes the numbers from the drawing; a card sale taken through Stripe is refunded automatically, cash and checks you hand back). Set the price, bundles ("3 for 25, 10 for 75"), slip text and the text message under **/admin › Raffle › Selling at the event & texting numbers**. **Download sales CSV** gives you the reconciliation, including check numbers and Stripe payment IDs.
+The page also shows running cash/check/card totals and which card terminals are online, plus a search box, **Reprint**, **Text again** (which can fix a mistyped number) and **Void** (removes the numbers from the drawing; a card sale taken through Stripe is refunded automatically, cash and checks you hand back). Set the price, bundles ("3 for 10, 7 for 20"), slip text and the text message under **/admin › Raffle › Selling at the event & texting numbers**. **Download sales CSV** gives you the reconciliation, including check numbers and Stripe payment IDs.
 
 **Buyer lookup.** Under **/admin › Raffle › Buyer lookup**, click **Pull contacts from Givebutter** a day or two before and again on race morning. The Sell page downloads the list once and searches it in the browser, so it stays instant even if Givebutter is slow. Buyers picked from Givebutter keep their contact ID, so the transaction lands on the right person later.
 

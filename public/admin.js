@@ -60,6 +60,8 @@
     if (!b) return;
     for (const x of $("tabs").children) x.classList.toggle("on", x === b);
     for (const t of ["bids", "items", "raffle", "settings"]) $("tab-" + t).hidden = t !== b.dataset.tab;
+    // The top stat row is auction numbers; the Raffle tab has its own row.
+    $("stats").hidden = b.dataset.tab === "raffle";
   };
 
   /* ---------- Load + render ---------- */
@@ -691,7 +693,7 @@
   for (const id of ["rPrice", "rBundles", "rDrawInfo", "rFooter", "rSmsTpl"]) $(id).addEventListener("input", () => { salesFormDirty = true; if (id === "rSmsTpl") smsLen(); });
   $("rSalesSave").onclick = async () => {
     const bundles = parseBundles($("rBundles").value);
-    if ($("rBundles").value.trim() && !bundles.length) return msg("rSalesMsg", "Write bundles like “3 for 25, 10 for 75”.", false);
+    if ($("rBundles").value.trim() && !bundles.length) return msg("rSalesMsg", "Write bundles like “3 for 10, 7 for 20”.", false);
     try {
       await rApi("raffleSaveSalesConfig", { config: { price: $("rPrice").value, bundles, drawingInfo: $("rDrawInfo").value, slipFooter: $("rFooter").value }, smsTemplate: $("rSmsTpl").value }, "rSalesMsg");
       salesFormDirty = false; renderSalesCard();

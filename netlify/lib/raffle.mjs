@@ -39,8 +39,8 @@ export const EMPTY = {
   // so numbers never collide: sold tickets 2026 0001…, race participants 2026 5001…, hand-added 2026 9001….
   numbering: { prefix: "2026", saleStart: 1, participantStart: 5001, manualStart: 9001 },
   salesConfig: {
-    price: 10, // per ticket
-    bundles: [{ count: 3, price: 25 }, { count: 10, price: 75 }],
+    price: 5, // per ticket
+    bundles: [{ count: 3, price: 10 }, { count: 7, price: 20 }],
     slipFooter: "Keep this slip. Good luck!",
     drawingInfo: "", // e.g. "Drawing Sun Oct 25 at 4:00 PM"
   },
@@ -59,14 +59,25 @@ export const EMPTY = {
   smsLog: [], // last 300 sends { at, to, name, numbers, ok, error, kind }
 };
 
+// Docs saved before the prices were set still carry the old placeholder prices ($10, 3 for $25,
+// 10 for $75). Swap those for the real ones; any prices staff have changed are left alone.
+function fixOldPrices(doc) {
+  const c = doc.salesConfig;
+  const b = (c && c.bundles) || [];
+  if (c && Number(c.price) === 10 && b.length === 2 && b[0].count === 3 && b[0].price === 25 && b[1].count === 10 && b[1].price === 75) {
+    doc.salesConfig = { ...c, price: EMPTY.salesConfig.price, bundles: structuredClone(EMPTY.salesConfig.bundles) };
+  }
+  return doc;
+}
+
 export async function getRaffle(s) {
-  return { ...structuredClone(EMPTY), ...((await s.get(KEY, { type: "json" })) || {}) };
+  return fixOldPrices({ ...structuredClone(EMPTY), ...((await s.get(KEY, { type: "json" })) || {}) });
 }
 
 // Read-modify-write the raffle doc, then refresh the public snapshot.
 export async function updateRaffle(s, fn) {
   const next = await updateJSON(s, KEY, async (cur) => {
-    const doc = { ...structuredClone(EMPTY), ...(cur || {}) };
+    const doc = fixOldPrices({ ...structuredClone(EMPTY), ...(cur || {}) });
     return (await fn(doc)) || doc;
   });
   await s.setJSON(SCREEN_KEY, screenSnapshot(next));
@@ -260,10 +271,17 @@ export function defaultEntriesFor(type) {
 }
 
 /* ---------------- Event sales ---------------- */
+// Cheapest way to make up `count` tickets from single tickets and bundles
+// (e.g. with 1 for $5, 3 for $10, 7 for $20: 10 tickets = 7 + 3 = $30).
 export function salePrice(cfg, count) {
-  const exact = (cfg.bundles || []).find((b) => b.count === count);
-  if (exact) return exact.price;
-  return Math.round(count * (Number(cfg.price) || 0) * 100) / 100;
+  const each = Number(cfg?.price) || 0;
+  const packs = [{ count: 1, price: each }, ...((cfg?.bundles) || []).filter((b) => b.count > 0 && Number.isFinite(Number(b.price)))];
+  const best = [0];
+  for (let n = 1; n <= count; n++) {
+    best[n] = Infinity;
+    for (const p of packs) if (p.count <= n) best[n] = Math.min(best[n], best[n - p.count] + Number(p.price));
+  }
+  return Math.round(best[count] * 100) / 100;
 }
 
 export function createSale(doc, { id, name, phone, email, count, payment, amount, checkNo, stripe, contactId, station }) {
