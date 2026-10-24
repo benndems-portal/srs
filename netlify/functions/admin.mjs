@@ -273,6 +273,16 @@ const actions = {
     return raffleView(doc);
   },
 
+  // Prize photo from the admin page (already shrunk in the browser). Returns the URL to save on the prize.
+  async raffleUploadImage({ s, body }) {
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(body.dataUrl || ""));
+    if (!m) throw new HttpError(400, "That file isn't a JPG, PNG or WebP image.");
+    if (m[2].length > 4_000_000) throw new HttpError(413, "That image is too large. Try a smaller photo.");
+    const id = randomUUID();
+    await s.setJSON("img/" + id, { type: m[1], data: m[2], at: new Date().toISOString() });
+    return { url: "/img/" + id };
+  },
+
   async raffleSavePrizes({ s, body }) {
     const input = Array.isArray(body.prizes) ? body.prizes.slice(0, 200) : [];
     const doc = await R.updateRaffle(s, (d) => {

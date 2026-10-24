@@ -11,7 +11,7 @@
 /* Idle */
 .r-idle { height: 100%; display: flex; flex-direction: column; animation: fadein 0.6s ease; }
 .r-idle-main { flex: 1; display: flex; align-items: center; gap: 2.4rem; min-height: 0; }
-.r-idle-img { flex: 0 0 38%; align-self: stretch; margin: 1.5rem 0; border-radius: 0.9rem; background: center / cover no-repeat rgba(255, 255, 255, 0.04); }
+.r-idle-img { flex: 0 0 38%; align-self: stretch; margin: 1.5rem 0; border-radius: 0.9rem; background: center / contain no-repeat rgba(255, 255, 255, 0.04); }
 .r-prize-big { font-family: Fraunces, Georgia, serif; font-size: 5.4rem; line-height: 1.04; letter-spacing: -0.01em; }
 .r-prize-detail { color: var(--muted); font-size: 1.8rem; margin: 1rem 0 0; }
 .r-idle-foot { color: var(--dim); font-size: 1.3rem; border-top: 1px solid var(--line); padding-top: 1rem; }

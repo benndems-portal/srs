@@ -473,7 +473,12 @@
       <div class="pn">${i + 1}</div>
       <input data-f="name" value="${esc(p.name)}" placeholder="Prize name *">
       <input class="opt" data-f="detail" value="${esc(p.detail || "")}" placeholder="Donated by… (optional)">
-      <input class="opt" data-f="image" value="${esc(p.image || "")}" placeholder="Image URL (optional)">
+      <div class="opt pimg">
+        <button type="button" class="pthumb" data-upimg="${i}" title="Upload a photo"${p.image ? ` style="background-image:url('${esc(encodeURI(p.image))}')"` : ""}>${p.image ? "" : "📷"}</button>
+        <button type="button" class="btn ghost sm" data-upimg="${i}">${p.image ? "Change photo" : "Upload photo"}</button>
+        ${p.image ? `<button type="button" class="btn ghost sm" data-noimg="${i}" title="Remove photo">✕</button>` : ""}
+        <input type="hidden" data-f="image" value="${esc(p.image || "")}">
+      </div>
       <div style="white-space:nowrap"><button class="btn ghost sm" data-up="${i}" title="Move up">↑</button> <button class="btn danger sm" data-rm="${i}" title="Remove">✕</button></div>
     </div>`).join("") || `<p class="dim">No prizes yet.</p>`;
   }
@@ -484,11 +489,46 @@
     image: row.querySelector("[data-f=image]").value.trim(),
   }));
   $("rPrizes").addEventListener("input", () => { prizeDraft = true; });
+
+  // Prize photos: pick a file, shrink it in the browser (longest side 1200 px), upload, save the /img/… URL.
+  const imgPick = Object.assign(document.createElement("input"), { type: "file", accept: "image/*" });
+  let imgRow = -1;
+  async function shrinkImage(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const im = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error("decode")); i.src = url; });
+      const k = Math.min(1, 1200 / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      // PNGs keep transparency (logos); photos become JPEG.
+      return file.type === "image/png" ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.85);
+    } finally { URL.revokeObjectURL(url); }
+  }
+  imgPick.onchange = async () => {
+    const file = imgPick.files[0]; imgPick.value = "";
+    if (!file || imgRow < 0) return;
+    const i = imgRow;
+    msg("rPrizeMsg", "Uploading photo…");
+    let dataUrl;
+    try { dataUrl = await shrinkImage(file); }
+    catch { return msg("rPrizeMsg", "Couldn't read that image. Use a JPG or PNG (on a Mac, iPhone HEIC photos can be exported as JPG from Photos).", false); }
+    try {
+      const r = await rApi("raffleUploadImage", { dataUrl }, "rPrizeMsg");
+      const rows = readPrizeRows();
+      if (!rows[i]) return;
+      rows[i].image = r.url; prizeDraft = true; renderPrizeRows(rows);
+      msg("rPrizeMsg", "Photo added. Click Save prizes to keep it.");
+    } catch {}
+  };
   $("rTitle").addEventListener("input", () => { prizeDraft = true; });
   $("rPrizes").addEventListener("click", (e) => {
     const rows = readPrizeRows();
     const up = e.target.closest("[data-up]"), rm = e.target.closest("[data-rm]");
-    if (up) { const i = +up.dataset.up; if (i > 0) [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; }
+    const pick = e.target.closest("[data-upimg]"), noimg = e.target.closest("[data-noimg]");
+    if (pick) { imgRow = +pick.dataset.upimg; imgPick.click(); return; }
+    if (noimg) rows[+noimg.dataset.noimg].image = "";
+    else if (up) { const i = +up.dataset.up; if (i > 0) [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; }
     else if (rm) rows.splice(+rm.dataset.rm, 1);
     else return;
     prizeDraft = true;

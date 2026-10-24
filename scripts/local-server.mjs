@@ -135,6 +135,7 @@ const { default: admin } = await import("../netlify/functions/admin.mjs");
 const { default: webhook } = await import("../netlify/functions/webhook.mjs");
 const { default: raffle } = await import("../netlify/functions/raffle.mjs");
 const { default: terminal } = await import("../netlify/functions/terminal.mjs");
+const { default: img } = await import("../netlify/functions/img.mjs");
 const PUBLIC = new URL("../public/", import.meta.url).pathname;
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" };
 const PORT = Number(process.env.PORT || 8888);
@@ -163,7 +164,7 @@ http.createServer(async (req, res) => {
     if (b.ended) { it.ended = true; it.winning_bid = it.last_bid; it.winning_bids = it.last_bid ? [it.last_bid] : []; }
     res.writeHead(200); return res.end("ok");
   }
-  const fn = url.pathname === "/api/state" ? state : url.pathname === "/api/admin" ? admin : url.pathname === "/api/webhook" ? webhook : url.pathname === "/api/raffle" ? raffle : url.pathname === "/api/terminal" ? terminal : null;
+  const fn = url.pathname === "/api/state" ? state : url.pathname === "/api/admin" ? admin : url.pathname === "/api/webhook" ? webhook : url.pathname === "/api/raffle" ? raffle : url.pathname === "/api/terminal" ? terminal : url.pathname.startsWith("/img/") ? img : null;
   if (fn) {
     const chunks = [];
     for await (const c of req) chunks.push(c);
