@@ -43,6 +43,21 @@ export async function addJob(s, { saleId = "", kind = "slip", from = "", reprint
   return job;
 }
 
+// Many slips at once (runner tickets). Skips sales that already have a slip waiting.
+export async function addJobs(s, saleIds, from = "", reprint = false) {
+  const added = [];
+  await updatePrintQueue(s, (q) => {
+    const waiting = new Set(q.jobs.filter((j) => j.status !== "printed").map((j) => j.saleId));
+    const t = Date.now();
+    saleIds.forEach((id, i) => {
+      if (waiting.has(id)) return;
+      const job = { id: randomUUID(), kind: "slip", saleId: clean(id, 80), from: clean(from), reprint: !!reprint, status: "queued", createdAt: new Date(t + i).toISOString() };
+      q.jobs.push(job); added.push(job);
+    });
+  });
+  return added;
+}
+
 // A print station checks in and takes the jobs waiting for it.
 export async function claimJobs(s, printer, max = 4) {
   const p = { id: clean(printer?.id) || "station", name: clean(printer?.name) || "Print station" };

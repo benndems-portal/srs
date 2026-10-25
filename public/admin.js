@@ -721,24 +721,47 @@
       $("rBundles").value = bundlesText(c.bundles);
       $("rDrawInfo").value = c.drawingInfo || "";
       $("rFooter").value = c.slipFooter || "";
+      $("rRunnerN").value = c.runnerTickets || 2;
+      $("rSlipEach").value = c.slipEach || "runner";
       $("rSmsTpl").value = r.smsTemplate || "";
       smsLen();
     }
+    for (const el of document.querySelectorAll(".runnerEach")) el.textContent = c.runnerTickets || 2;
+    $("rRunInfo").textContent = t.runners ? `${t.runners} runner${t.runners === 1 ? "" : "s"} have free tickets so far (${t.runnerTickets} tickets).` : "No runner tickets yet.";
     $("rTwilio").innerHTML = r.smsConfigured ? `<span class="pill won">Connected</span> Twilio settings found in Netlify.` : `<span class="pill error">Not set up</span> Add <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code> and <code>TWILIO_MESSAGING_SERVICE_SID</code> in Netlify, then redeploy.`;
   }
   function smsLen() {
     const sample = $("rSmsTpl").value.replace(/\{first\}/g, "Sarah").replace(/\{name\}/g, "Sarah Ramsey").replace(/\{numbers\}/g, [1, 2, 3].map((i) => (raffle?.numbering?.prefix || "2026") + String(i).padStart(4, "0")).join(", ")).replace(/\{count\}/g, "3").replace(/\{event\}/g, raffle?.title || "");
     $("rSmsLen").textContent = `${sample.length} characters with 3 numbers${sample.length > 160 ? " (sends as more than one text segment)" : ""}. Preview: ${sample}`;
   }
-  for (const id of ["rPrice", "rBundles", "rDrawInfo", "rFooter", "rSmsTpl"]) $(id).addEventListener("input", () => { salesFormDirty = true; if (id === "rSmsTpl") smsLen(); });
+  for (const id of ["rPrice", "rBundles", "rDrawInfo", "rFooter", "rSmsTpl", "rRunnerN", "rSlipEach"]) $(id).addEventListener("input", () => { salesFormDirty = true; if (id === "rSmsTpl") smsLen(); });
   $("rSalesSave").onclick = async () => {
     const bundles = parseBundles($("rBundles").value);
     if ($("rBundles").value.trim() && !bundles.length) return msg("rSalesMsg", "Write bundles like “3 for 10, 7 for 20”.", false);
     try {
-      await rApi("raffleSaveSalesConfig", { config: { price: $("rPrice").value, bundles, drawingInfo: $("rDrawInfo").value, slipFooter: $("rFooter").value }, smsTemplate: $("rSmsTpl").value }, "rSalesMsg");
+      await rApi("raffleSaveSalesConfig", { config: { price: $("rPrice").value, bundles, drawingInfo: $("rDrawInfo").value, slipFooter: $("rFooter").value, runnerTickets: $("rRunnerN").value, slipEach: $("rSlipEach").value }, smsTemplate: $("rSmsTpl").value }, "rSalesMsg");
       salesFormDirty = false; renderSalesCard();
       msg("rSalesMsg", "Saved. The Sell page picks this up within 20 seconds (or on refresh).");
     } catch {}
+  };
+  const printWhere = (r) => r.printers?.length ? `Printing on ${r.printers.map((p) => p.name).join(", ")}.` : "Queued. They print as soon as the print station (/print on the laptop) is open.";
+  $("rRunMake").onclick = async () => {
+    const names = $("rRunNames").value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+    const count = names.length || Math.floor(Number($("rRunCount").value) || 0);
+    if (!count) return msg("rRunMsg", "Enter how many runners, or paste their names.", false);
+    const print = $("rRunPrint").checked;
+    const each = raffle?.salesConfig?.runnerTickets || 2;
+    if (!confirm(`Make free tickets for ${count} runner${count === 1 ? "" : "s"} (${count * each} tickets)${print ? " and print them" : ""}?`)) return;
+    $("rRunMake").disabled = true;
+    try {
+      const r = await rApi("raffleRunnerBatch", { count, names, print, from: "Staff page" }, "rRunMsg");
+      $("rRunNames").value = ""; $("rRunCount").value = "";
+      msg("rRunMsg", `Made ${r.tickets} tickets for ${r.created} runner${r.created === 1 ? "" : "s"} (${r.first} – ${r.last}). ${print ? printWhere(r) : "Not printed (reprint them below when ready)."}`);
+    } catch {} finally { $("rRunMake").disabled = false; }
+  };
+  $("rRunReprint").onclick = async () => {
+    if (!confirm("Send every runner ticket to the print station again?")) return;
+    try { const r = await api("rafflePrintRunners", { from: "Staff page" }); msg("rRunMsg", `${r.queued} runner slip${r.queued === 1 ? "" : "s"} sent. ${printWhere(r)}`); } catch (e) { msg("rRunMsg", e.message, false); }
   };
   $("rTestSms").onclick = async () => {
     try { const r = await api("raffleTestSms", { phone: $("rTestPhone").value }); msg("rTestMsg", `Sent: “${r.text}”`); } catch (e) { msg("rTestMsg", e.message, false); }

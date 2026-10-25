@@ -42,6 +42,8 @@ export const EMPTY = {
     price: 5, // per ticket
     bundles: [{ count: 3, price: 10 }, { count: 7, price: 20 }],
     slipFooter: "Keep this slip. Good luck!",
+    runnerTickets: 2, // free tickets each race participant gets on /sell (the "Runner" button)
+    slipEach: "runner", // print each ticket on its own slip: "runner" (free runner tickets only) | "all" | "off"
     drawingInfo: "", // e.g. "Drawing Sun Oct 25 at 4:00 PM"
   },
   // Record event sales in Givebutter as transactions (POST /v1/transactions). By default they are
@@ -310,6 +312,8 @@ export function salesSummary(doc) {
     check: sum(live.filter((x) => x.payment === "check"), (x) => x.amount),
     card: sum(live.filter((x) => x.payment === "card"), (x) => x.amount),
     stripe: sum(live.filter((x) => x.payment === "card" && x.stripe?.pi), (x) => x.amount),
+    runners: live.filter((x) => x.payment === "runner").length,
+    runnerTickets: sum(live.filter((x) => x.payment === "runner"), (x) => x.count),
     voided: (doc.sales || []).length - live.length,
   };
 }
@@ -377,6 +381,7 @@ export function gbTransactionBody(doc, sale) {
 export function shouldRecord(doc, sale) {
   const cfg = { ...EMPTY.gbRecord, ...(doc.gbRecord || {}) };
   if (!cfg.enabled || sale.voided) return false;
+  if (sale.payment === "runner" || !(Number(sale.amount) > 0)) return false; // free runner tickets aren't a transaction
   if (sale.payment === "card" && !cfg.recordCard) return false;
   return !(sale.gb && sale.gb.status === "recorded");
 }

@@ -3,26 +3,41 @@
 window.SRSSlip = (() => {
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const fmt$ = (n) => "$" + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
-  const payLabel = (x) => x.payment === "check" ? `check${x.checkNo ? " #" + x.checkNo : ""}` : x.payment === "card" && x.stripe?.last4 ? `${x.stripe.brand ? x.stripe.brand[0].toUpperCase() + x.stripe.brand.slice(1) : "card"} …${x.stripe.last4}` : x.payment;
+  const payLabel = (x) => x.payment === "runner" ? "free · runner" : x.payment === "check" ? `check${x.checkNo ? " #" + x.checkNo : ""}` : x.payment === "card" && x.stripe?.last4 ? `${x.stripe.brand ? x.stripe.brand[0].toUpperCase() + x.stripe.brand.slice(1) : "card"} …${x.stripe.last4}` : x.payment;
   // 20260427 -> 2026<b>0427</b> so the part that matters stands out.
   const numHTML = (n, prefix) => (n.length === prefix.length + 4 && n.startsWith(prefix) ? `${esc(prefix)}<b>${esc(n.slice(prefix.length))}</b>` : esc(n));
 
-  function html(sale, { title = "Raffle", prefix = "2026", cfg = {} } = {}) {
+  // part = { i, of } when each ticket number gets its own slip.
+  function html(sale, { title = "Raffle", prefix = "2026", cfg = {} } = {}, part = null) {
     const when = new Date(sale.at);
-    const one = sale.numbers.length === 1;
+    const nums = part ? [sale.numbers[part.i]] : sale.numbers;
+    const one = nums.length === 1;
+    const runner = sale.payment === "runner";
+    const count = runner
+      ? `${sale.count} free ticket${sale.count === 1 ? "" : "s"} · race participant`
+      : `${sale.count} ticket${sale.count === 1 ? "" : "s"} · ${fmt$(sale.amount)} ${esc(payLabel(sale))}`;
     return `
       <div class="ev">${esc(title)}</div>
-      <div class="banner">RAFFLE TICKET${one ? "" : "S"}</div>
-      <div class="meta"><span>${when.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</span><span>${when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
+      <div class="banner">${runner ? "RUNNER " : "RAFFLE "}TICKET${one ? "" : "S"}</div>
+      <div class="meta"><span>${when.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</span><span>${part ? `Ticket ${part.i + 1} of ${part.of}` : when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
       <div class="name">${esc(sale.name)}</div>
-      <div class="count">${sale.count} ticket${one ? "" : "s"} · ${fmt$(sale.amount)} ${esc(payLabel(sale))}</div>
-      <div class="nums${one ? " one" : ""}">${sale.numbers.map((n) => `<span>${numHTML(n, prefix)}</span>`).join("")}</div>
+      <div class="count">${count}</div>
+      <div class="nums${one ? " one" : ""}">${nums.map((n) => `<span>${numHTML(n, prefix)}</span>`).join("")}</div>
       ${cfg.drawingInfo ? `<div class="info">${esc(cfg.drawingInfo)}</div>` : ""}
       ${cfg.slipFooter ? `<div class="foot">${esc(cfg.slipFooter)}</div>` : ""}
       ${sale.phone && sale.sms?.status === "sent" ? `<div class="ref">Numbers also texted to ${esc(sale.phonePretty)}</div>` : ""}
-      <div class="ref">Raffle ticket purchase · not tax-deductible</div>
+      <div class="ref">${runner ? "Free entry for race participants" : "Raffle ticket purchase · not tax-deductible"}</div>
       <div class="cut">✂ - - - - - - - - - - - - - - -</div>`;
   }
+
+  // All the slips for one sale: one slip, or one per ticket number when the setting says so
+  // (Staff › Raffle › Selling › "Each ticket on its own slip"). Each is printed (and cut) separately.
+  function slips(sale, meta = {}) {
+    const each = meta.cfg?.slipEach || "runner";
+    const split = sale.numbers.length > 1 && (each === "all" || (each === "runner" && sale.payment === "runner"));
+    return split ? sale.numbers.map((_, i) => html(sale, meta, { i, of: sale.numbers.length })) : [html(sale, meta)];
+  }
+  async function printSale(sale, meta) { for (const h of slips(sale, meta)) await print(h); }
 
   function testHTML(title) {
     return `<div class="ev">${esc(title || "Raffle")}</div><div class="banner">TEST PRINT</div>
@@ -50,5 +65,5 @@ window.SRSSlip = (() => {
     return new Promise((resolve) => setTimeout(() => { window.print(); resolve(); }, 50));
   }
 
-  return { PAGE_W, MIN_H, html, testHTML, print, payLabel, numHTML, esc, fmt$ };
+  return { PAGE_W, MIN_H, html, slips, printSale, testHTML, print, payLabel, numHTML, esc, fmt$ };
 })();

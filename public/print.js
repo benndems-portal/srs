@@ -62,7 +62,7 @@
           for (const j of r.jobs) {
             try {
               if (j.kind === "test") await SRSSlip.print(SRSSlip.testHTML(meta.title));
-              else if (j.sale) await SRSSlip.print(SRSSlip.html(j.sale, meta));
+              else if (j.sale) await SRSSlip.printSale(j.sale, meta);
               await api("printDone", { ids: [j.id], printer });
               count++; pref.set("printStationCount", String(count));
             } catch (e) { lastError = e.message; }

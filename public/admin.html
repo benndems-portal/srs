@@ -238,6 +238,19 @@
           </div>
 
           <div class="card">
+            <h2>Free runner tickets</h2>
+            <p class="muted" style="margin-top:0">One at a time: on the <a href="/sell" target="_blank" rel="noopener"><b>Sell page</b></a>, look the runner up (or leave the name blank) and tap <b>🏃 Runner</b>. They get <b class="runnerEach">2</b> free tickets, printed and texted like a sale. Here you can make tickets for many runners at once; they print on the print station (<a href="/print" target="_blank" rel="noopener">/print</a> on the laptop), one slip per ticket.</p>
+            <div class="row">
+              <div><label style="margin:0">How many runners</label><input id="rRunCount" type="number" min="1" max="500" inputmode="numeric" placeholder="e.g. 150" style="width:140px"></div>
+              <div style="flex:1;min-width:220px"><label style="margin:0">or runner names <span class="dim">(one per line, optional)</span></label><textarea id="rRunNames" rows="2" placeholder="Jane Smith&#10;Tom Lee"></textarea></div>
+            </div>
+            <label class="dim" style="display:flex;gap:6px;align-items:center;margin-top:8px;font-weight:500"><input type="checkbox" id="rRunPrint" checked> Print them now on the print station</label>
+            <div class="row" style="margin-top:10px"><button class="btn" type="button" id="rRunMake">Make runner tickets</button><button class="btn ghost" type="button" id="rRunReprint">Reprint all runner tickets</button></div>
+            <div id="rRunInfo" class="dim" style="margin-top:8px"></div>
+            <div id="rRunMsg"></div>
+          </div>
+
+          <div class="card">
             <h2>Selling at the event &amp; texting numbers</h2>
             <p class="muted" style="margin-top:0">Volunteers sell on the <a href="/sell" target="_blank" rel="noopener"><b>Sell page</b></a>: look the buyer up by phone or last name, pick a quantity, then cash, check or card. It prints a receipt slip and texts the numbers (<b class="numSale">2026 0001</b>, <b>2026 0002</b>, and so on). Every sale goes straight into the drawing.</p>
             <div class="stats" id="rSalesStats" style="margin-bottom:12px"></div>
@@ -246,6 +259,9 @@
               <div class="span2"><label>Bundles <span class="dim">(e.g. “3 for 10, 7 for 20”)</span></label><input id="rBundles" placeholder="3 for 10, 7 for 20"></div>
               <div class="span2"><label>Drawing info printed on the slip</label><input id="rDrawInfo" placeholder="Drawing Sun Oct 25 at 4:00 PM"></div>
               <div class="span2"><label>Slip footer</label><input id="rFooter" placeholder="Keep this slip. Good luck!"></div>
+              <div><label>Free tickets per runner</label><input id="rRunnerN" type="number" min="1" max="20" inputmode="numeric"></div>
+              <div class="span2"><label>Each ticket on its own slip</label>
+                <select id="rSlipEach"><option value="runner">Runner tickets only</option><option value="all">All tickets (sold too)</option><option value="off">Off — one slip per sale</option></select></div>
               <div style="grid-column:1/-1"><label>Text message <span class="dim">({first}, {name}, {numbers}, {count}, {event})</span></label><textarea id="rSmsTpl" rows="2"></textarea><div class="dim" id="rSmsLen"></div></div>
             </div>
             <div class="row" style="margin-top:12px"><button class="btn" type="button" id="rSalesSave">Save</button><button class="btn ghost" type="button" id="rSalesCsv">Download sales CSV</button></div>

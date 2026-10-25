@@ -8,7 +8,7 @@ import { processWebhook, logDelivery, readLog } from "../lib/webhook.mjs";
 import { syncIfStale, readSyncMeta } from "../lib/gbsync.mjs";
 import * as R from "../lib/raffle.mjs";
 import { smsConfigured, normalizePhone, prettyPhone, sendSms, renderTemplate } from "../lib/sms.mjs";
-import { saleDraft, completeSale, sendSaleText, applySmsResult, textSale, recordSaleInGb } from "../lib/sales.mjs";
+import { saleDraft, completeSale, sendSaleText, applySmsResult, textSale, recordSaleInGb, runnerCount, existingRunnerSale, RUNNER_NAME } from "../lib/sales.mjs";
 import * as S from "../lib/stripe.mjs";
 import { settleRequest, cancelRequest } from "../lib/cards.mjs";
 import { pullContactsPage, getLookup } from "../lib/lookup.mjs";
@@ -383,7 +383,9 @@ const actions = {
         .filter((b) => b.count > 1 && b.count <= 500 && b.price != null)
         .sort((a, b) => a.count - b.count)
         .slice(0, 8);
-      d.salesConfig = { ...cur, price: price ?? 0, bundles, slipFooter: str(c.slipFooter ?? cur.slipFooter, 200), drawingInfo: str(c.drawingInfo ?? cur.drawingInfo, 120) };
+      d.salesConfig = { ...cur, price: price ?? 0, bundles, slipFooter: str(c.slipFooter ?? cur.slipFooter, 200), drawingInfo: str(c.drawingInfo ?? cur.drawingInfo, 120),
+        runnerTickets: runnerCount({ runnerTickets: c.runnerTickets ?? cur.runnerTickets }),
+        slipEach: ["runner", "all", "off"].includes(c.slipEach) ? c.slipEach : cur.slipEach || "runner" };
       if ("smsTemplate" in body) {
         const t = str(body.smsTemplate, 600);
         if (t && !t.includes("{numbers}")) throw new HttpError(400, "The text message must include {numbers}.");
@@ -397,8 +399,39 @@ const actions = {
   async raffleSell({ s, body }) {
     const cur = await R.getRaffle(s);
     const draft = saleDraft(body, cur.salesConfig);
+    if (draft.payment === "runner" && !body.again) {
+      const had = existingRunnerSale(cur, draft);
+      if (had) throw new HttpError(409, `${had.name} already got free runner tickets (${had.numbers.join(", ")}). Find them under Recent sales to reprint.`);
+    }
     const { doc, sale } = await completeSale(s, draft);
     return { ...raffleView(doc), sale: saleView(sale) };
+  },
+
+  // Free runner tickets for many runners at once (e.g. 150 runners, or a pasted list of names),
+  // each queued to the print station. No texts — these have no phone numbers.
+  async raffleRunnerBatch({ s, body }) {
+    const names = (Array.isArray(body.names) ? body.names : []).map((n) => str(n, 120)).filter(Boolean).slice(0, 500);
+    const n = names.length || Math.floor(Number(body.count) || 0);
+    if (n < 1 || n > 500) throw new HttpError(400, "How many runners? (1–500)");
+    const made = [];
+    const doc = await R.updateRaffle(s, (d) => {
+      const each = runnerCount(d.salesConfig);
+      for (let i = 0; i < n; i++) made.push(R.createSale(d, { name: names[i] || RUNNER_NAME, phone: "", email: "", count: each, payment: "runner", amount: 0, station: "batch" }));
+    });
+    let queued = 0;
+    if (body.print !== false) queued = (await P.addJobs(s, made.map((x) => x.id), str(body.from, 60) || "Runner tickets")).length;
+    const q = await P.getPrintQueue(s);
+    return { ...raffleView(doc), created: made.length, tickets: made.reduce((t, x) => t + x.count, 0), first: made[0]?.numbers[0], last: made.at(-1)?.numbers.at(-1), queued, printers: P.livePrinters(q) };
+  },
+
+  // Print (or reprint) every free runner ticket on the print station.
+  async rafflePrintRunners({ s, body }) {
+    const doc = await R.getRaffle(s);
+    const ids = doc.sales.filter((x) => x.payment === "runner" && !x.voided && (body.batchOnly ? x.station === "batch" : true)).map((x) => x.id);
+    if (!ids.length) throw new HttpError(404, "There are no runner tickets yet.");
+    const jobs = await P.addJobs(s, ids, str(body.from, 60) || "Runner tickets", true);
+    const q = await P.getPrintQueue(s);
+    return { queued: jobs.length, printers: P.livePrinters(q) };
   },
 
   /* ---------------- Card payments on the iPhone terminal (Stripe Reader M2) ---------------- */

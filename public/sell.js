@@ -72,7 +72,8 @@
     $("hdr").textContent = `Sell raffle tickets · ${title}`;
     $("smsWarn").hidden = r.smsConfigured;
     const s = r.summary;
-    $("totals").innerHTML = `<span><b>${s.tickets}</b> tickets</span><span><b>${s.sales}</b> sales</span><span>Cash <b>${fmt$(s.cash)}</b></span><span>Check <b>${fmt$(s.check || 0)}</b></span><span>Card <b>${fmt$(s.card)}</b></span>`;
+    $("totals").innerHTML = `<span><b>${s.tickets}</b> tickets</span><span><b>${s.sales}</b> sales</span><span>Cash <b>${fmt$(s.cash)}</b></span><span>Check <b>${fmt$(s.check || 0)}</b></span><span>Card <b>${fmt$(s.card)}</b></span>${s.runners ? `<span>Runners <b>${s.runners}</b></span>` : ""}`;
+    $("runnerN").textContent = cfg.runnerTickets || 2;
     setTerminals(r.terminals || []);
     printers = r.printers || []; printWaiting = r.printWaiting || 0; showPrinter();
     if (r.stripe?.configured && r.stripe.mode === "test") $("hdr").textContent += " · STRIPE TEST MODE";
@@ -264,6 +265,12 @@
   function pay(kind) {
     if (busy || card) return;
     msg("saleMsg", "");
+    // Free runner tickets: a name is optional (blank = "Race participant").
+    if (kind === "runner") {
+      if (!buyer && !$("fName").value.trim() && $("q").value.trim()) choose(null);
+      if (!$("fName").value.trim()) $("fName").value = "Race participant";
+      return sell("runner");
+    }
     if (!ready()) return;
     if (kind === "cash") return sell("cash");
     if (kind === "check") { $("checkRow").hidden = false; $("fCheck").value = ""; $("fCheck").focus(); return; }
@@ -282,10 +289,10 @@
   };
 
   addEventListener("keydown", (e) => {
-    if (!$("appView").hidden && ["F1", "F2", "F3"].includes(e.key)) {
+    if (!$("appView").hidden && ["F1", "F2", "F3", "F4"].includes(e.key)) {
       e.preventDefault();
       if (!$("done").hidden) return;
-      pay({ F1: "cash", F2: "check", F3: "card" }[e.key]);
+      pay({ F1: "cash", F2: "check", F3: "card", F4: "runner" }[e.key]);
     }
     if (e.key === "Escape" && !card && $("done").hidden && !$("buyer").hidden && document.activeElement !== $("fCheck")) clearBuyer();
   });
@@ -427,7 +434,7 @@
 
   /* ---------- Slip: here (window.print) or on the print station laptop ---------- */
   async function printSlip(sale, reprint = false) {
-    if (printOn !== "station") return SRSSlip.print(SRSSlip.html(sale, { title, prefix, cfg }));
+    if (printOn !== "station") return SRSSlip.printSale(sale, { title, prefix, cfg });
     try {
       const r = await api("printSend", { saleId: sale.id, from: APP?.terminalName || "Sell page", reprint });
       printers = r.printers; printWaiting = r.waiting; showPrinter();
@@ -472,7 +479,7 @@
       }
       if (e.target.closest("[data-void]")) {
         const stripeSale = sale.payment === "card" && sale.stripe?.pi;
-        if (!confirm(`Void ${sale.name}'s sale? Tickets ${sale.numbers.join(", ")} will be removed from the drawing.` + (stripeSale ? `\n\nThe ${fmt$(sale.amount)} card payment will be refunded through Stripe.` : `\n\nGive the ${sale.payment} back separately.`))) return;
+        if (!confirm(`Void ${sale.name}'s sale? Tickets ${sale.numbers.join(", ")} will be removed from the drawing.` + (stripeSale ? `\n\nThe ${fmt$(sale.amount)} card payment will be refunded through Stripe.` : sale.payment === "runner" ? "" : `\n\nGive the ${sale.payment} back separately.`))) return;
         const r = await api("raffleVoidSale", { id: sale.id, refund: !!stripeSale });
         if (r.refund && !r.refund.ok) alert("Voided, but the Stripe refund failed: " + r.refund.error + "\nRefund it in the Stripe Dashboard.");
         else if (r.gbNote === "flagged") alert("Voided. The Givebutter transaction is marked VOIDED in its note. Delete it in Givebutter (the API can't delete it).");

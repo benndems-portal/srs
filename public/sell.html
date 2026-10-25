@@ -91,6 +91,9 @@
     .paybig button { position: relative; background: var(--card); color: var(--text); border: 2px solid var(--line); border-radius: 14px; padding: 18px 8px 14px; font: inherit; font-size: 22px; font-weight: 800; cursor: pointer; }
     .paybig button:hover { border-color: var(--gold); }
     .paybig .ico { display:block; font-size: 30px; line-height: 1.1; }
+    .paybig button.runner { grid-column: 1 / -1; display:flex; align-items:center; justify-content:center; gap: 10px; font-size: 19px; padding: 12px 8px; border-style: dashed; }
+    .paybig button.runner .ico { display:inline; font-size: 24px; }
+    .pill.runner { color: var(--gold); background: rgba(242,193,78,.12); }
     .paybig kbd { position:absolute; top: 6px; right: 8px; font: 600 11px Inter, sans-serif; color: var(--dim); }
     .paybig button[data-pay=card] { border-color: rgba(111,168,255,.45); }
     .paybig button:disabled { opacity: .45; cursor: default; }
@@ -186,6 +189,7 @@
               <button type="button" data-pay="cash"><span class="ico">💵</span>Cash<kbd>F1</kbd></button>
               <button type="button" data-pay="check"><span class="ico">🧾</span>Check<kbd>F2</kbd></button>
               <button type="button" data-pay="card"><span class="ico">💳</span>Card<kbd>F3</kbd></button>
+              <button type="button" data-pay="runner" class="runner"><span class="ico">🏃</span><span>Runner · <span id="runnerN">2</span> free tickets</span><kbd>F4</kbd></button>
             </div>
             <div id="checkRow" class="checkrow" hidden>
               <input id="fCheck" inputmode="numeric" placeholder="Check # (optional)">

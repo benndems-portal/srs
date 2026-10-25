@@ -13,17 +13,28 @@ const amountOf = (v) => {
   return Number.isFinite(n) && n >= 0 ? money(n) : null;
 };
 
+export const runnerCount = (cfg) => Math.max(1, Math.min(20, Math.floor(Number(cfg?.runnerTickets ?? R.EMPTY.salesConfig.runnerTickets)) || 2));
+export const RUNNER_NAME = "Race participant";
+
+// A runner who already has free tickets (same phone, or same name when there's no phone). Unnamed bulk tickets never match.
+export function existingRunnerSale(doc, draft) {
+  const nm = (v) => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (!draft.phone && nm(draft.name) === nm(RUNNER_NAME)) return null;
+  return (doc.sales || []).find((x) => x.payment === "runner" && !x.voided && (draft.phone ? x.phone === draft.phone : !x.phone && nm(x.name) === nm(draft.name))) || null;
+}
+
 // Checks the form and returns a clean sale draft (no numbers yet).
 export function saleDraft(body, salesConfig) {
   const name = str(body.name, 120);
-  const count = Math.floor(Number(body.count) || 0);
+  // Free runner tickets: always the configured number (2), whatever quantity was picked.
+  const count = body.payment === "runner" ? runnerCount(salesConfig) : Math.floor(Number(body.count) || 0);
   if (!name) throw new HttpError(400, "Enter the buyer's name.");
   if (count < 1 || count > 500) throw new HttpError(400, "How many tickets? (1–500)");
   const rawPhone = str(body.phone, 40);
   const phone = normalizePhone(rawPhone);
   if (rawPhone && !phone) throw new HttpError(400, "That phone number doesn't look right. Use 10 digits, e.g. 555-123-4567.");
-  const payment = ["cash", "check", "card"].includes(body.payment) ? body.payment : "cash";
-  const amount = amountOf(body.amount) ?? R.salePrice(salesConfig, count);
+  const payment = ["cash", "check", "card", "runner"].includes(body.payment) ? body.payment : "cash";
+  const amount = payment === "runner" ? 0 : amountOf(body.amount) ?? R.salePrice(salesConfig, count);
   return {
     name,
     phone,
